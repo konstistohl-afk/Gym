@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Trainingstracker">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Trainingstracker</title>
 <style>
   :root {
@@ -336,6 +339,9 @@ let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
 let editExName = '';         // Entwurf: Name
 let editExSets = 3;          // Entwurf: Sätze
 let editExMuscles = [];      // Entwurf: Muskelgruppen
+let woSetType = {};          // Satztyp pro Übung im Training: {index: 'normal'|'warmup'|'drop'}
+let editSet = null;          // gerade bearbeiteter Satz: {ei, si}
+let editReps = '', editKg = '', editRpe = '', editMins = '', editSetType = 'normal';
 
 /* ================= Vorlagen-Pläne ================= */
 function loadTemplates(silent) {
@@ -358,7 +364,9 @@ function loadTemplates(silent) {
 const musclesOf = e => e.muscles || (e.muscle ? [e.muscle] : []);
 const isCardio = e => musclesOf(e).includes('Cardio');
 const badges = e => musclesOf(e).map(badge).join(' ');
-const fmtSet = s => s.mins != null ? `${s.mins} min` : `${s.reps}×${s.weight}kg`;
+const isWarmup = s => s.type === 'warmup';
+const setMark = s => s.type === 'warmup' ? 'W·' : s.type === 'drop' ? 'D·' : '';
+const fmtSet = s => s.mins != null ? `${s.mins} min` : `${setMark(s)}${s.reps}×${s.weight}kg${s.rpe ? ' @' + s.rpe : ''}`;
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -375,7 +383,8 @@ function lastSetsFor(name) {
   return null;
 }
 function volume(w) {
-  return w.entries.reduce((s, e) => s + e.sets.reduce((t, x) => t + (x.mins != null ? 0 : x.reps * x.weight), 0), 0);
+  // Aufwärmsätze zählen nicht zum Trainingsvolumen
+  return w.entries.reduce((s, e) => s + e.sets.reduce((t, x) => t + (x.mins != null || isWarmup(x) ? 0 : x.reps * x.weight), 0), 0);
 }
 function setCount(w) {
   return w.entries.reduce((s, e) => s + e.sets.length, 0);
@@ -439,6 +448,15 @@ function rHome() {
           <div><b style="font-size:16px">${esc(p.name)}</b>
             <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
             <div class="sub">${p.exercises.length} Übungen</div></div>
+          <div style="color:var(--accent);font-size:22px">▶︎</div>
+        </div></div>`;
+    }
+    if (S.workouts.length) {
+      const lw = S.workouts[S.workouts.length - 1];
+      h += `<div class="card" onclick="repeatLast()" style="cursor:pointer;margin-top:6px">
+        <div class="listitem">
+          <div><b style="font-size:16px">↻ Letztes Training wiederholen</b>
+            <div class="sub">${esc(lw.planName)} · ${fmtDate(lw.date)} · ${lw.entries.length} Übungen</div></div>
           <div style="color:var(--accent);font-size:22px">▶︎</div>
         </div></div>`;
     }
@@ -720,6 +738,7 @@ function savePlan() {
 function startWorkout(planId) {
   if (S.active && !confirm('Es läuft bereits ein Training. Neues starten und das alte verwerfen?')) return;
   const p = planId ? S.plans.find(p => p.id === planId) : null;
+  woSetType = {}; editSet = null;
   S.active = {
     planName: p ? p.name : 'Freies Training',
     start: new Date().toISOString(),
@@ -734,25 +753,78 @@ function exBlock(i) {
   const cardio = isCardio(e);
   const last = lastSetsFor(e.name);
   const lastHint = last ? `Letztes Mal: <b>${last.map(fmtSet).join(' · ')}</b>` : 'Erste Session mit dieser Übung 🎉';
-  let inputs;
-  if (cardio) {
+
+  // Satz-Pillen (antippen zum Bearbeiten, ✕ zum Löschen)
+  const pills = e.sets.map((s, j) => {
+    const c = s.type === 'warmup' ? 'var(--orange)' : s.type === 'drop' ? 'var(--accent2)' : 'var(--accent)';
+    return `<span class="setpill" style="${s.type ? `box-shadow:inset 0 0 0 1.5px ${c}` : ''}">
+      <span onclick="startSetEdit(${i},${j})" style="cursor:pointer">${j + 1}. &nbsp;<b>${fmtSet(s)}</b></span>
+      <span class="x" onclick="rmSet(${i},${j})">✕</span></span>`;
+  }).join('');
+
+  // Eingabezeile bzw. Inline-Editor, wenn ein Satz dieser Übung bearbeitet wird
+  let editing = editSet && editSet.ei === i;
+  let inputArea;
+  if (editing) {
+    inputArea = setEditPanel(i, cardio);
+  } else if (cardio) {
     const prefillM = e.sets.length ? e.sets[e.sets.length - 1].mins : (last && last[last.length - 1].mins != null ? last[last.length - 1].mins : '');
-    inputs = `<input id="min-${i}" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0" value="${prefillM}">
-      <button class="btn sm" style="flex:0 0 92px" onclick="addSet(${i})">+ Satz</button>`;
+    inputArea = `<div class="row" style="margin-top:12px">
+      <input id="min-${i}" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0" value="${prefillM}">
+      <button class="btn sm" style="flex:0 0 92px" onclick="addSet(${i})">+ Satz</button></div>`;
   } else {
     const prefillW = e.sets.length ? e.sets[e.sets.length - 1].weight : (last && last[last.length - 1].weight != null ? last[last.length - 1].weight : '');
-    inputs = `<input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
+    const t = woSetType[i] || 'normal';
+    const typeSel = `<div class="chips" style="margin-top:10px;align-items:center">
+      <span class="hint" style="display:inline;margin:0 2px">Satztyp:</span>
+      ${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
+        `<button class="chip ${t === v ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="setWoType(${i},'${v}')">${l}</button>`).join('')}
+    </div>`;
+    inputArea = `${typeSel}<div class="row" style="margin-top:8px">
+      <input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
       <input id="kg-${i}" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0" value="${prefillW}">
-      <button class="btn sm" style="flex:0 0 92px" onclick="addSet(${i})">+ Satz</button>`;
+      <input id="rpe-${i}" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px">
+      <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>`;
   }
-  return `<div class="listitem"><div><b style="font-size:16px">${esc(e.name)}</b> &nbsp;${badges(e)}</div>
-      <button class="iconbtn" onclick="rmWoEx(${i})">✕</button></div>
+
+  return `<div class="listitem"><div style="flex:1"><b style="font-size:16px">${esc(e.name)}</b> &nbsp;${badges(e)}</div>
+      <div style="display:flex;gap:6px">
+        <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveWoEx(${i},-1)">↑</button>
+        <button class="iconbtn" ${i === w.entries.length - 1 ? 'disabled' : ''} onclick="moveWoEx(${i},1)">↓</button>
+        <button class="iconbtn" onclick="rmWoEx(${i})">✕</button>
+      </div></div>
     <div class="hint">${e.target ? `Ziel: <b>${e.target} Sätze</b> · ` : ''}${lastHint}</div>
-    <div class="chips" style="margin-top:10px">
-      ${e.sets.map((s, j) => `<span class="setpill">${j + 1}. &nbsp;<b>${fmtSet(s)}</b>
-        <span class="x" onclick="rmSet(${i},${j})">✕</span></span>`).join('')}
+    ${e.sets.length ? `<div class="chips" style="margin-top:10px">${pills}</div>` : ''}
+    ${inputArea}`;
+}
+
+/* Inline-Editor für einen bereits eingetragenen Satz */
+function setEditPanel(i, cardio) {
+  if (cardio) {
+    return `<div class="card" style="background:var(--fill);margin-top:12px;padding:12px">
+      <div class="hint" style="margin:0 0 8px">Satz ${editSet.si + 1} bearbeiten</div>
+      <div class="row">
+        <input id="edit-min" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0" value="${esc(editMins)}">
+        <button class="btn sm" style="flex:0 0 70px" onclick="saveSetEdit()">✓</button>
+        <button class="iconbtn" onclick="cancelSetEdit()">✕</button>
+      </div></div>`;
+  }
+  return `<div class="card" style="background:var(--fill);margin-top:12px;padding:12px">
+    <div class="hint" style="margin:0 0 8px">Satz ${editSet.si + 1} bearbeiten</div>
+    <div class="chips" style="align-items:center">
+      <span class="hint" style="display:inline;margin:0 2px">Satztyp:</span>
+      ${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
+        `<button class="chip ${editSetType === v ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="setEditType('${v}')">${l}</button>`).join('')}
     </div>
-    <div class="row" style="margin-top:12px">${inputs}</div>`;
+    <div class="row" style="margin-top:8px">
+      <input id="edit-reps" type="number" inputmode="numeric" placeholder="Wdh." min="1" value="${esc(editReps)}">
+      <input id="edit-kg" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0" value="${esc(editKg)}">
+      <input id="edit-rpe" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px" value="${esc(editRpe)}">
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn sm ghost" onclick="cancelSetEdit()">Abbrechen</button>
+      <button class="btn sm" onclick="saveSetEdit()">Speichern</button>
+    </div></div>`;
 }
 
 function rWorkout() {
@@ -824,6 +896,7 @@ function rmWoEx(i) {
   if (S.active.entries[i].sets.length && !confirm('Übung samt Sätzen entfernen?')) return;
   // War diese Übung der zweite Teil eines Supersatzes? Dann die Verbindung lösen.
   if (i > 0 && S.active.entries[i - 1].ss) S.active.entries[i - 1].ss = false;
+  editSet = null;
   S.active.entries.splice(i, 1);
   save(); render();
 }
@@ -844,15 +917,95 @@ function addSet(i) {
   }
   const reps = parseInt(document.getElementById(`reps-${i}`).value, 10);
   const kg = parseFloat(document.getElementById(`kg-${i}`).value);
+  const rpeRaw = parseInt(document.getElementById(`rpe-${i}`).value, 10);
   if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
   if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
-  e.sets.push({ reps, weight: kg });
+  const set = { reps, weight: kg };
+  const type = woSetType[i] || 'normal';
+  if (type !== 'normal') set.type = type;
+  if (!isNaN(rpeRaw) && rpeRaw >= 1 && rpeRaw <= 10) set.rpe = rpeRaw;
+  e.sets.push(set);
   save(); render();
-  // Beim Supersatz: nach der ersten Übung keine Pause – direkt zur Partner-Übung
+  // Aufwärmsätze und der erste Teil eines Supersatzes lösen keinen Pausen-Timer aus
   const firstOfPair = e.ss && i + 1 < S.active.entries.length;
-  if (!firstOfPair) startRest();
+  if (!firstOfPair && type !== 'warmup') startRest();
+}
+/* Satztyp für die nächste Eingabe dieser Übung wählen */
+function setWoType(i, t) {
+  woSetType[i] = t;
+  render();
+}
+/* Übung im laufenden Training umsortieren */
+function moveWoEx(i, d) {
+  const j = i + d;
+  const a = S.active.entries;
+  if (j < 0 || j >= a.length) return;
+  editSet = null;
+  [a[i], a[j]] = [a[j], a[i]];
+  save(); render();
+}
+/* Einen vorhandenen Satz bearbeiten */
+function startSetEdit(ei, si) {
+  const s = S.active.entries[ei].sets[si];
+  editSet = { ei, si };
+  editReps = s.reps != null ? s.reps : '';
+  editKg = s.weight != null ? s.weight : '';
+  editRpe = s.rpe != null ? s.rpe : '';
+  editMins = s.mins != null ? s.mins : '';
+  editSetType = s.type || 'normal';
+  render();
+}
+function syncSetEdit() {
+  const r = document.getElementById('edit-reps'); if (r) editReps = r.value;
+  const k = document.getElementById('edit-kg'); if (k) editKg = k.value;
+  const p = document.getElementById('edit-rpe'); if (p) editRpe = p.value;
+  const m = document.getElementById('edit-min'); if (m) editMins = m.value;
+}
+function setEditType(t) {
+  syncSetEdit();
+  editSetType = t;
+  render();
+}
+function saveSetEdit() {
+  syncSetEdit();
+  const s = S.active.entries[editSet.ei].sets[editSet.si];
+  if (s.mins != null) {
+    const mins = parseFloat(editMins);
+    if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
+    s.mins = Math.round(mins * 10) / 10;
+  } else {
+    const reps = parseInt(editReps, 10);
+    const kg = parseFloat(editKg);
+    const rpe = parseInt(editRpe, 10);
+    if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
+    if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    s.reps = reps;
+    s.weight = kg;
+    if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) s.rpe = rpe; else delete s.rpe;
+    if (editSetType !== 'normal') s.type = editSetType; else delete s.type;
+  }
+  editSet = null;
+  save(); render();
+}
+function cancelSetEdit() {
+  editSet = null;
+  render();
+}
+/* Letztes Training mit gleichen Übungen erneut starten */
+function repeatLast() {
+  if (!S.workouts.length) return;
+  if (S.active && !confirm('Es läuft bereits ein Training. Neues starten und das alte verwerfen?')) return;
+  const last = S.workouts[S.workouts.length - 1];
+  woSetType = {}; editSet = null;
+  S.active = {
+    planName: last.planName,
+    start: new Date().toISOString(),
+    entries: last.entries.map(e => ({ name: e.name, muscles: musclesOf(e), target: e.target, ss: e.ss, sets: [] }))
+  };
+  save(); go('workout');
 }
 function rmSet(i, j) {
+  editSet = null;
   S.active.entries[i].sets.splice(j, 1);
   save(); render();
 }
@@ -1073,7 +1226,7 @@ function rPlanAnalysis() {
     for (const w of sessions) {
       const e = w.entries.find(e => e.name.toLowerCase() === name.toLowerCase());
       if (!e) continue;
-      const strengthSets = e.sets.filter(s => s.mins == null);
+      const strengthSets = e.sets.filter(s => s.mins == null && !isWarmup(s));
       if (strengthSets.length) pts.push({ est: Math.max(...strengthSets.map(e1rm)), top: Math.max(...strengthSets.map(s => s.weight)) });
     }
     if (!pts.length) continue; // reine Cardio-Übungen haben keine Kraftkurve
@@ -1103,11 +1256,12 @@ function rMuscleStats() {
   for (const w of S.workouts) {
     if (new Date(w.date).getTime() < cutoff) continue;
     for (const e of w.entries) {
-      const vol = e.sets.reduce((t, s) => t + (s.mins != null ? 0 : s.reps * s.weight), 0);
+      const workSets = e.sets.filter(s => !isWarmup(s)); // Aufwärmsätze nicht mitzählen
+      const vol = workSets.reduce((t, s) => t + (s.mins != null ? 0 : s.reps * s.weight), 0);
       for (const m of musclesOf(e)) {
         if (!agg.has(m)) agg.set(m, { sets: 0, vol: 0 });
         const a = agg.get(m);
-        a.sets += e.sets.length;
+        a.sets += workSets.length;
         a.vol += vol;
       }
     }
@@ -1282,6 +1436,52 @@ if (!S.plans.length && !S.workouts.length) loadTemplates(true);
 
 applyTheme();
 render();
+
+/* ================= PWA: Offline & Update-Hinweis ================= */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          // Neue Version bereit, alte läuft noch -> Hinweis zeigen
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner();
+        });
+      });
+    }).catch(() => {});
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+  });
+}
+function showUpdateBanner() {
+  if (document.getElementById('updbar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'updbar';
+  bar.innerHTML = `<span>✨ Update verfügbar</span>
+    <button id="updbtn" style="background:rgba(255,255,255,0.25);border:none;color:#fff;font-family:inherit;font-size:14px;font-weight:700;border-radius:9px;padding:7px 13px;cursor:pointer">Jetzt laden</button>`;
+  Object.assign(bar.style, {
+    position: 'fixed', left: '16px', right: '16px',
+    bottom: 'calc(env(safe-area-inset-bottom) + 82px)',
+    background: 'var(--accent2)', color: '#fff', borderRadius: '16px',
+    padding: '13px 18px', display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between', fontSize: '16px', fontWeight: '600',
+    zIndex: '70', boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
+    maxWidth: '528px', margin: '0 auto'
+  });
+  document.body.appendChild(bar);
+  document.getElementById('updbtn').onclick = () => {
+    bar.querySelector('span').textContent = '⏳ wird geladen …';
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg && reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+      else location.reload();
+    });
+  };
+}
 </script>
 </body>
 </html>
