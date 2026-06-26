@@ -332,6 +332,10 @@ let editPlan = null;   // Arbeitskopie beim Plan-Bearbeiten
 let selMuscles = ['Brust'];
 let openHist = null;
 let calMonth = null;
+let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
+let editExName = '';         // Entwurf: Name
+let editExSets = 3;          // Entwurf: Sätze
+let editExMuscles = [];      // Entwurf: Muskelgruppen
 
 /* ================= Vorlagen-Pläne ================= */
 function loadTemplates(silent) {
@@ -380,7 +384,7 @@ function setCount(w) {
 /* ================= Navigation ================= */
 function go(tab) {
   cur = tab;
-  if (tab !== 'planEdit') editPlan = null;
+  if (tab !== 'planEdit') { editPlan = null; editExIdx = null; }
   render();
   scrollTo(0, 0);
 }
@@ -534,11 +538,13 @@ function rPlans() {
 
 function newPlan() {
   editPlan = { id: uid(), name: '', exercises: [], isNew: true };
+  editExIdx = null;
   cur = 'planEdit'; render(); scrollTo(0, 0);
 }
 function openPlan(id) {
   const p = S.plans.find(p => p.id === id);
   editPlan = JSON.parse(JSON.stringify(p));
+  editExIdx = null;
   cur = 'planEdit'; render(); scrollTo(0, 0);
 }
 function delPlan(id) {
@@ -558,16 +564,35 @@ function rPlanEdit() {
     <h2>Übungen</h2>`;
   if (!p.exercises.length) h += `<div class="sub" style="margin-bottom:12px">Füge unten Übungen hinzu. Mit ↑ ↓ änderst du die Reihenfolge.</div>`;
   p.exercises.forEach((e, i) => {
-    h += `<div class="card" style="padding:13px 16px"><div class="listitem">
-      <div style="flex:1"><b>${esc(e.name)}</b>
-        <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${badges(e)}
-          <span class="hint" style="display:inline;margin:0">· ${e.target || 3} Sätze</span></div></div>
-      <div style="display:flex;gap:6px">
-        <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveEx(${i},-1)">↑</button>
-        <button class="iconbtn" ${i === p.exercises.length - 1 ? 'disabled' : ''} onclick="moveEx(${i},1)">↓</button>
-        <button class="iconbtn" onclick="rmPlanEx(${i})">✕</button>
-      </div>
-    </div></div>`;
+    if (editExIdx === i) {
+      h += `<div class="card" style="padding:14px 16px">
+        <label class="fld" style="margin-top:0">Name &amp; Sätze</label>
+        <div class="row">
+          <input id="edit-ex-name" value="${esc(editExName)}" placeholder="z. B. Bankdrücken">
+          <input id="edit-ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(editExSets)}" style="flex:0 0 76px" title="Sätze">
+        </div>
+        <label class="fld">Muskelgruppen (mehrere möglich)</label>
+        <div class="chips">${MUSCLES.map(([m]) =>
+          `<button class="chip ${editExMuscles.includes(m) ? 'on' : ''}" onclick="pickEditMuscle('${m}')">${m}</button>`).join('')}
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn sm ghost" onclick="cancelExEdit()">Abbrechen</button>
+          <button class="btn sm" onclick="saveExEdit()">Speichern</button>
+        </div>
+      </div>`;
+    } else {
+      h += `<div class="card" style="padding:13px 16px"><div class="listitem">
+        <div style="flex:1;cursor:pointer" onclick="startExEdit(${i})"><b>${esc(e.name)}</b>
+          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${badges(e)}
+            <span class="hint" style="display:inline;margin:0">· ${e.target || 3} Sätze · tippen zum Bearbeiten</span></div></div>
+        <div style="display:flex;gap:6px">
+          <button class="iconbtn" onclick="startExEdit(${i})">✎</button>
+          <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveEx(${i},-1)">↑</button>
+          <button class="iconbtn" ${i === p.exercises.length - 1 ? 'disabled' : ''} onclick="moveEx(${i},1)">↓</button>
+          <button class="iconbtn" onclick="rmPlanEx(${i})">✕</button>
+        </div>
+      </div></div>`;
+    }
     if (i < p.exercises.length - 1) {
       h += `<div class="ss-toggle"><button class="chip ${e.ss ? 'on' : ''}" style="padding:5px 12px;font-size:12px" onclick="toggleSS(${i})">⇄ Supersatz</button></div>`;
     }
@@ -575,8 +600,8 @@ function rPlanEdit() {
   h += `<div class="card" style="margin-top:14px">
     <label class="fld" style="margin-top:0">Neue Übung</label>
     <div class="row">
-      <input id="ex-name" placeholder="z. B. Bankdrücken">
-      <input id="ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${p._draftSets || 3}" style="flex:0 0 76px" title="Sätze">
+      <input id="ex-name" placeholder="z. B. Bankdrücken" value="${esc(p._draft || '')}">
+      <input id="ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(p._draftSets || 3)}" style="flex:0 0 76px" title="Sätze">
     </div>
     <div class="hint" style="margin:4px 4px 0">Rechts: Anzahl der Sätze (Ziel)</div>
     <label class="fld">Muskelgruppen (mehrere möglich)</label>
@@ -590,6 +615,7 @@ function rPlanEdit() {
 }
 function moveEx(i, d) {
   syncPlanName();
+  editExIdx = null;
   const j = i + d;
   const a = editPlan.exercises;
   if (j < 0 || j >= a.length) return;
@@ -618,6 +644,48 @@ function syncPlanName() {
   if (ex && editPlan) editPlan._draft = ex.value;
   const st = document.getElementById('ex-sets');
   if (st && editPlan) editPlan._draftSets = st.value;
+  // Inline-Bearbeitung einer vorhandenen Übung mitsichern
+  const en = document.getElementById('edit-ex-name');
+  if (en) editExName = en.value;
+  const es = document.getElementById('edit-ex-sets');
+  if (es) editExSets = es.value;
+}
+
+/* Vorhandene Übung im Plan bearbeiten (Name, Sätze, Muskelgruppen) */
+function startExEdit(i) {
+  syncPlanName();
+  const e = editPlan.exercises[i];
+  editExIdx = i;
+  editExName = e.name;
+  editExSets = e.target || 3;
+  editExMuscles = [...musclesOf(e)];
+  render();
+  const el = document.getElementById('edit-ex-name');
+  if (el) el.focus();
+}
+function pickEditMuscle(m) {
+  syncPlanName();
+  const i = editExMuscles.indexOf(m);
+  if (i >= 0) editExMuscles.splice(i, 1);
+  else editExMuscles.push(m);
+  render();
+}
+function saveExEdit() {
+  syncPlanName();
+  const name = (editExName || '').trim();
+  if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
+  if (!editExMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
+  const e = editPlan.exercises[editExIdx];
+  e.name = name;
+  e.muscles = [...editExMuscles];
+  e.target = Math.max(1, Math.min(10, parseInt(editExSets, 10) || 3));
+  delete e.muscle; // alte Einzel-Eigenschaft entfernen
+  editExIdx = null;
+  render();
+}
+function cancelExEdit() {
+  editExIdx = null;
+  render();
 }
 function addPlanEx() {
   syncPlanName();
@@ -632,6 +700,7 @@ function addPlanEx() {
 }
 function rmPlanEx(i) {
   syncPlanName();
+  editExIdx = null;
   editPlan.exercises.splice(i, 1);
   render();
 }
@@ -710,10 +779,14 @@ function rWorkout() {
         <div style="margin-top:10px">${exBlock(i)}</div>
         <div style="border-top:0.5px solid var(--sep);margin:16px 0"></div>
         ${exBlock(i + 1)}
+        <div class="ss-toggle" style="margin:14px 0 -2px"><button class="chip on" style="padding:5px 12px;font-size:12px" onclick="toggleWoSS(${i})">⇄ Supersatz auflösen</button></div>
       </div>`;
       i += 2;
     } else {
       h += `<div class="card">${exBlock(i)}</div>`;
+      if (i + 1 < w.entries.length) {
+        h += `<div class="ss-toggle"><button class="chip" style="padding:5px 12px;font-size:12px" onclick="toggleWoSS(${i})">⇄ Mit nächster Übung verbinden</button></div>`;
+      }
       i++;
     }
   }
@@ -749,7 +822,15 @@ function addWoEx() {
 }
 function rmWoEx(i) {
   if (S.active.entries[i].sets.length && !confirm('Übung samt Sätzen entfernen?')) return;
+  // War diese Übung der zweite Teil eines Supersatzes? Dann die Verbindung lösen.
+  if (i > 0 && S.active.entries[i - 1].ss) S.active.entries[i - 1].ss = false;
   S.active.entries.splice(i, 1);
+  save(); render();
+}
+/* Supersatz im laufenden Training verbinden/auflösen (Übung i mit i+1) */
+function toggleWoSS(i) {
+  const e = S.active.entries[i];
+  e.ss = !e.ss;
   save(); render();
 }
 function addSet(i) {
