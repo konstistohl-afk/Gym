@@ -342,6 +342,13 @@ let editExMuscles = [];      // Entwurf: Muskelgruppen
 let woSetType = {};          // Satztyp pro Übung im Training: {index: 'normal'|'warmup'|'drop'}
 let editSet = null;          // gerade bearbeiteter Satz: {ei, si}
 let editReps = '', editKg = '', editRpe = '', editMins = '', editSetType = 'normal';
+let editScope = 'active';    // Satz-Editor wirkt auf: 'active' (Training) | 'hist' (Verlauf)
+let editWid = null;          // Workout-ID beim Bearbeiten im Verlauf
+let histEdit = null;         // Workout-ID, das gerade im Verlauf bearbeitet wird
+let woEditIdx = null;        // Index der im Training bearbeiteten Übung (Name/Muskeln/Ziel)
+let suggList = [];           // aktuelle Übungs-Vorschläge (für pickSuggest per Index)
+let selAnaEx = null;         // gewählte Übung in der Übungs-Analyse
+let anaExNames = [];
 
 /* ================= Vorlagen-Pläne ================= */
 function loadTemplates(silent) {
@@ -382,6 +389,24 @@ function lastSetsFor(name) {
   }
   return null;
 }
+/* Alle bekannten Übungen, zuletzt verwendete zuerst (Workouts rückwärts, dann Pläne) */
+function recentExercises() {
+  const seen = new Map();
+  const add = name => { const k = name.toLowerCase(); if (!seen.has(k)) seen.set(k, name); };
+  for (const w of [...S.workouts].sort((a, b) => b.date.localeCompare(a.date)))
+    for (const e of w.entries) add(e.name);
+  for (const p of S.plans) for (const e of p.exercises) add(e.name);
+  return [...seen.values()];
+}
+/* Sätze-Ziel einer Übung aus den Plänen übernehmen */
+function targetFor(name) {
+  const k = name.toLowerCase();
+  for (const p of S.plans) {
+    const e = p.exercises.find(e => e.name.toLowerCase() === k);
+    if (e && e.target) return e.target;
+  }
+  return null;
+}
 function volume(w) {
   // Aufwärmsätze zählen nicht zum Trainingsvolumen
   return w.entries.reduce((s, e) => s + e.sets.reduce((t, x) => t + (x.mins != null || isWarmup(x) ? 0 : x.reps * x.weight), 0), 0);
@@ -394,6 +419,9 @@ function setCount(w) {
 function go(tab) {
   cur = tab;
   if (tab !== 'planEdit') { editPlan = null; editExIdx = null; }
+  if (tab !== 'history') histEdit = null;
+  editSet = null;
+  woEditIdx = null;
   render();
   scrollTo(0, 0);
 }
@@ -411,6 +439,9 @@ function render() {
   else if (cur === 'analysis') v.innerHTML = rAnalysis();
   else if (cur === 'orm') v.innerHTML = rOrm();
   else if (cur === 'weight') v.innerHTML = rWeight();
+  // Übungs-Vorschläge unter den Namensfeldern befüllen
+  if (cur === 'planEdit' && editPlan) filterSuggest('plan');
+  else if (cur === 'workout' && S.active) filterSuggest('wo');
 }
 
 /* ================= Start ================= */
@@ -547,7 +578,10 @@ function rPlans() {
         <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
         <div class="sub">${p.exercises.length} Übungen · tippen zum Bearbeiten</div>
       </div>
-      <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
+      <div style="display:flex;gap:6px">
+        <button class="iconbtn" title="Duplizieren" onclick="dupPlan('${p.id}')">⧉</button>
+        <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
+      </div>
     </div></div>`;
   }
   h += `<button class="btn" style="margin-top:10px" onclick="newPlan()">+ Neuer Plan</button>`;
@@ -571,6 +605,15 @@ function delPlan(id) {
     S.plans = S.plans.filter(p => p.id !== id);
     save(); render();
   }
+}
+function dupPlan(id) {
+  const p = S.plans.find(p => p.id === id);
+  if (!p) return;
+  const copy = JSON.parse(JSON.stringify(p));
+  copy.id = uid();
+  copy.name = p.name + ' (Kopie)';
+  S.plans.push(copy);
+  save(); render();
 }
 
 function rPlanEdit() {
@@ -618,10 +661,11 @@ function rPlanEdit() {
   h += `<div class="card" style="margin-top:14px">
     <label class="fld" style="margin-top:0">Neue Übung</label>
     <div class="row">
-      <input id="ex-name" placeholder="z. B. Bankdrücken" value="${esc(p._draft || '')}">
+      <input id="ex-name" placeholder="z. B. Bankdrücken" value="${esc(p._draft || '')}" oninput="filterSuggest('plan')">
       <input id="ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(p._draftSets || 3)}" style="flex:0 0 76px" title="Sätze">
     </div>
     <div class="hint" style="margin:4px 4px 0">Rechts: Anzahl der Sätze (Ziel)</div>
+    <div class="chips" id="sugg-plan" style="margin-top:8px"></div>
     <label class="fld">Muskelgruppen (mehrere möglich)</label>
     <div class="chips">${MUSCLES.map(([m]) =>
       `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscle('${m}')">${m}</button>`).join('')}
@@ -667,6 +711,45 @@ function syncPlanName() {
   if (en) editExName = en.value;
   const es = document.getElementById('edit-ex-sets');
   if (es) editExSets = es.value;
+}
+
+/* ===== Übungs-Vorschläge (automatische Bibliothek) =====
+   Befüllt die Vorschlagsbox unter dem Namensfeld, ohne die Seite neu zu rendern
+   (so bleibt der Fokus beim Tippen erhalten). ctx: 'plan' | 'wo' */
+function filterSuggest(ctx) {
+  const inputId = ctx === 'plan' ? 'ex-name' : 'wo-ex-name';
+  const boxId = ctx === 'plan' ? 'sugg-plan' : 'sugg-wo';
+  const el = document.getElementById(inputId);
+  const box = document.getElementById(boxId);
+  if (!el || !box) return;
+  const q = el.value.trim().toLowerCase();
+  const existing = (ctx === 'plan'
+    ? (editPlan ? editPlan.exercises : [])
+    : (S.active ? S.active.entries : [])).map(e => e.name.toLowerCase());
+  suggList = recentExercises().filter(n => {
+    const k = n.toLowerCase();
+    return !existing.includes(k) && k !== q && (!q || k.includes(q));
+  }).slice(0, 8);
+  box.innerHTML = suggList.map((n, i) =>
+    `<button class="chip" style="padding:6px 12px;font-size:13px" onclick="pickSuggest(${i},'${ctx}')">${esc(n)}</button>`).join('');
+}
+function pickSuggest(i, ctx) {
+  const name = suggList[i];
+  if (!name) return;
+  const ms = musclesFor(name);
+  if (ms.length) selMuscles = [...ms];
+  if (ctx === 'plan') {
+    syncPlanName();
+    editPlan._draft = name;
+    const t = targetFor(name);
+    if (t) editPlan._draftSets = t;
+    render();
+  } else {
+    woDraft = name;
+    render();
+    const el = document.getElementById('wo-ex-name');
+    if (el) el.value = name;
+  }
 }
 
 /* Vorhandene Übung im Plan bearbeiten (Name, Sätze, Muskelgruppen) */
@@ -738,7 +821,7 @@ function savePlan() {
 function startWorkout(planId) {
   if (S.active && !confirm('Es läuft bereits ein Training. Neues starten und das alte verwerfen?')) return;
   const p = planId ? S.plans.find(p => p.id === planId) : null;
-  woSetType = {}; editSet = null;
+  woSetType = {}; editSet = null; woEditIdx = null;
   S.active = {
     planName: p ? p.name : 'Freies Training',
     start: new Date().toISOString(),
@@ -749,10 +832,12 @@ function startWorkout(planId) {
 
 function exBlock(i) {
   const w = S.active;
+  if (woEditIdx === i) return woExEditPanel(i);
   const e = w.entries[i];
   const cardio = isCardio(e);
   const last = lastSetsFor(e.name);
   const lastHint = last ? `Letztes Mal: <b>${last.map(fmtSet).join(' · ')}</b>` : 'Erste Session mit dieser Übung 🎉';
+  const ov = cardio ? null : overloadFor(e.name);
 
   // Satz-Pillen (antippen zum Bearbeiten, ✕ zum Löschen)
   const pills = e.sets.map((s, j) => {
@@ -763,7 +848,7 @@ function exBlock(i) {
   }).join('');
 
   // Eingabezeile bzw. Inline-Editor, wenn ein Satz dieser Übung bearbeitet wird
-  let editing = editSet && editSet.ei === i;
+  let editing = editSet && editScope === 'active' && editSet.ei === i;
   let inputArea;
   if (editing) {
     inputArea = setEditPanel(i, cardio);
@@ -787,15 +872,33 @@ function exBlock(i) {
       <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>`;
   }
 
-  return `<div class="listitem"><div style="flex:1"><b style="font-size:16px">${esc(e.name)}</b> &nbsp;${badges(e)}</div>
+  return `<div class="listitem"><div style="flex:1;cursor:pointer" onclick="startWoExEdit(${i})"><b style="font-size:16px">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></b> &nbsp;${badges(e)}</div>
       <div style="display:flex;gap:6px">
         <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveWoEx(${i},-1)">↑</button>
         <button class="iconbtn" ${i === w.entries.length - 1 ? 'disabled' : ''} onclick="moveWoEx(${i},1)">↓</button>
         <button class="iconbtn" onclick="rmWoEx(${i})">✕</button>
       </div></div>
     <div class="hint">${e.target ? `Ziel: <b>${e.target} Sätze</b> · ` : ''}${lastHint}</div>
+    ${ov && !editing ? `<div style="margin-top:8px"><button class="chip" style="padding:6px 12px;font-size:13px;color:var(--accent)" onclick="fillOverload(${i},${ov.reps},${ov.kg})">💡 Vorschlag: ${ov.reps}×${ov.kg} kg</button></div>` : ''}
     ${e.sets.length ? `<div class="chips" style="margin-top:10px">${pills}</div>` : ''}
     ${inputArea}`;
+}
+
+/* Inline-Editor für Name, Muskelgruppen & Sätze-Ziel einer Übung im Training */
+function woExEditPanel(i) {
+  return `<label class="fld" style="margin-top:0">Name &amp; Sätze-Ziel</label>
+    <div class="row">
+      <input id="wo-edit-name" value="${esc(editExName)}" placeholder="z. B. Bankdrücken">
+      <input id="wo-edit-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(editExSets)}" style="flex:0 0 76px" title="Sätze-Ziel">
+    </div>
+    <label class="fld">Muskelgruppen (mehrere möglich)</label>
+    <div class="chips">${MUSCLES.map(([m]) =>
+      `<button class="chip ${editExMuscles.includes(m) ? 'on' : ''}" onclick="pickWoEditMuscle('${m}')">${m}</button>`).join('')}
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn sm ghost" onclick="cancelWoExEdit()">Abbrechen</button>
+      <button class="btn sm" onclick="saveWoExEdit()">Speichern</button>
+    </div>`;
 }
 
 /* Inline-Editor für einen bereits eingetragenen Satz */
@@ -865,7 +968,8 @@ function rWorkout() {
 
   h += `<div class="card" style="margin-top:14px">
       <label class="fld" style="margin-top:0">Übung hinzufügen</label>
-      <input id="wo-ex-name" placeholder="z. B. Klimmzüge">
+      <input id="wo-ex-name" placeholder="z. B. Klimmzüge" value="${esc(woDraft)}" oninput="filterSuggest('wo')">
+      <div class="chips" id="sugg-wo" style="margin-top:8px"></div>
       <label class="fld">Muskelgruppen (mehrere möglich)</label>
       <div class="chips">${MUSCLES.map(([m]) =>
         `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscleWo('${m}')">${m}</button>`).join('')}
@@ -897,6 +1001,7 @@ function rmWoEx(i) {
   // War diese Übung der zweite Teil eines Supersatzes? Dann die Verbindung lösen.
   if (i > 0 && S.active.entries[i - 1].ss) S.active.entries[i - 1].ss = false;
   editSet = null;
+  woEditIdx = null;
   S.active.entries.splice(i, 1);
   save(); render();
 }
@@ -941,12 +1046,78 @@ function moveWoEx(i, d) {
   const a = S.active.entries;
   if (j < 0 || j >= a.length) return;
   editSet = null;
+  woEditIdx = null;
   [a[i], a[j]] = [a[j], a[i]];
   save(); render();
 }
-/* Einen vorhandenen Satz bearbeiten */
-function startSetEdit(ei, si) {
-  const s = S.active.entries[ei].sets[si];
+/* Übung im laufenden Training bearbeiten (Name, Muskelgruppen, Sätze-Ziel) */
+function startWoExEdit(i) {
+  const e = S.active.entries[i];
+  woEditIdx = i;
+  editSet = null;
+  editExName = e.name;
+  editExSets = e.target || 3;
+  editExMuscles = [...musclesOf(e)];
+  render();
+}
+function syncWoExEdit() {
+  const n = document.getElementById('wo-edit-name'); if (n) editExName = n.value;
+  const s = document.getElementById('wo-edit-sets'); if (s) editExSets = s.value;
+}
+function pickWoEditMuscle(m) {
+  syncWoExEdit();
+  const i = editExMuscles.indexOf(m);
+  if (i >= 0) editExMuscles.splice(i, 1);
+  else editExMuscles.push(m);
+  render();
+}
+function saveWoExEdit() {
+  syncWoExEdit();
+  const name = (editExName || '').trim();
+  if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
+  if (!editExMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
+  const e = S.active.entries[woEditIdx];
+  e.name = name;
+  e.muscles = [...editExMuscles];
+  e.target = Math.max(1, Math.min(10, parseInt(editExSets, 10) || 3));
+  delete e.muscle;
+  woEditIdx = null;
+  save(); render();
+}
+function cancelWoExEdit() {
+  woEditIdx = null;
+  render();
+}
+/* Progressive-Overload-Vorschlag: bester Arbeitssatz vom letzten Mal,
+   Wdh. < 12 -> +1 Wdh. bei gleichem Gewicht, sonst +2,5 kg und zurück auf 8 Wdh. */
+function overloadFor(name) {
+  const last = lastSetsFor(name);
+  if (!last) return null;
+  const work = last.filter(s => s.mins == null && !isWarmup(s));
+  if (!work.length) return null;
+  const top = work.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps)) ? b : a);
+  if (top.weight <= 0) return null; // Eigengewicht: kein sinnvoller Gewichts-Vorschlag
+  if (top.reps >= 12) return { reps: 8, kg: Math.round((top.weight + 2.5) * 10) / 10 };
+  return { reps: top.reps + 1, kg: top.weight };
+}
+function fillOverload(i, reps, kg) {
+  const r = document.getElementById(`reps-${i}`); if (r) r.value = reps;
+  const k = document.getElementById(`kg-${i}`); if (k) k.value = kg;
+}
+/* Ziel-Einträge des Satz-Editors: laufendes Training oder Workout im Verlauf */
+function entriesFor() {
+  if (editScope === 'hist') {
+    const w = S.workouts.find(w => w.id === editWid);
+    return w ? w.entries : [];
+  }
+  return S.active ? S.active.entries : [];
+}
+/* Einen vorhandenen Satz bearbeiten (scope: 'active' | 'hist') */
+function startSetEdit(ei, si, scope, wid) {
+  editScope = scope || 'active';
+  editWid = wid || null;
+  woEditIdx = null;
+  const s = entriesFor()[ei].sets[si];
   editSet = { ei, si };
   editReps = s.reps != null ? s.reps : '';
   editKg = s.weight != null ? s.weight : '';
@@ -968,7 +1139,7 @@ function setEditType(t) {
 }
 function saveSetEdit() {
   syncSetEdit();
-  const s = S.active.entries[editSet.ei].sets[editSet.si];
+  const s = entriesFor()[editSet.ei].sets[editSet.si];
   if (s.mins != null) {
     const mins = parseFloat(editMins);
     if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
@@ -996,7 +1167,7 @@ function repeatLast() {
   if (!S.workouts.length) return;
   if (S.active && !confirm('Es läuft bereits ein Training. Neues starten und das alte verwerfen?')) return;
   const last = S.workouts[S.workouts.length - 1];
-  woSetType = {}; editSet = null;
+  woSetType = {}; editSet = null; woEditIdx = null;
   S.active = {
     planName: last.planName,
     start: new Date().toISOString(),
@@ -1133,23 +1304,83 @@ function rHistory() {
         <div style="color:var(--muted)">${open ? '▲' : '▼'}</div>
       </div>`;
     if (open) {
+      const editing = histEdit === w.id;
       h += `<div style="margin-top:12px;border-top:0.5px solid var(--sep);padding-top:12px">`;
-      for (const e of w.entries) {
+      w.entries.forEach((e, ei) => {
         h += `<div style="margin-bottom:12px"><b>${esc(e.name)}</b> &nbsp;${badges(e)}
           <div class="chips" style="margin-top:7px">
-            ${e.sets.map((s, j) => `<span class="setpill">${j + 1}. &nbsp;<b>${fmtSet(s)}</b></span>`).join('')}
-          </div></div>`;
-      }
-      h += `<button class="btn danger sm" onclick="delWorkout('${w.id}')">Training löschen</button></div>`;
+            ${e.sets.map((s, j) => editing
+              ? `<span class="setpill"><span onclick="startSetEdit(${ei},${j},'hist','${w.id}')" style="cursor:pointer">${j + 1}. &nbsp;<b>${fmtSet(s)}</b></span><span class="x" onclick="rmHistSet(${ei},${j})">✕</span></span>`
+              : `<span class="setpill">${j + 1}. &nbsp;<b>${fmtSet(s)}</b></span>`).join('')}
+          </div>`;
+        if (editing) {
+          if (editSet && editScope === 'hist' && editSet.ei === ei) {
+            h += setEditPanel(ei, isCardio(e));
+          } else if (isCardio(e)) {
+            h += `<div class="row" style="margin-top:8px">
+              <input id="h-min-${ei}" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0">
+              <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>`;
+          } else {
+            h += `<div class="row" style="margin-top:8px">
+              <input id="h-reps-${ei}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
+              <input id="h-kg-${ei}" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0">
+              <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>`;
+          }
+        }
+        h += `</div>`;
+      });
+      h += editing
+        ? `<button class="btn sm" onclick="endHistEdit()">✓ Fertig</button>`
+        : `<div class="row"><button class="btn sm ghost" onclick="startHistEdit('${w.id}')">✎ Bearbeiten</button><button class="btn danger sm" onclick="delWorkout('${w.id}')">Training löschen</button></div>`;
+      h += `</div>`;
     }
     h += `</div>`;
   }
   return h;
 }
-function toggleHist(id) { openHist = openHist === id ? null : id; render(); }
+function toggleHist(id) { openHist = openHist === id ? null : id; histEdit = null; editSet = null; render(); }
 function delWorkout(id) {
   if (!confirm('Dieses Training aus dem Verlauf löschen?')) return;
   S.workouts = S.workouts.filter(w => w.id !== id);
+  histEdit = null; editSet = null;
+  save(); render();
+}
+/* ===== Verlauf nachträglich bearbeiten ===== */
+function startHistEdit(id) {
+  histEdit = id;
+  openHist = id;
+  editSet = null;
+  render();
+}
+function endHistEdit() {
+  const w = S.workouts.find(w => w.id === histEdit);
+  if (w) w.entries = w.entries.filter(e => e.sets.length); // leere Übungen entfernen
+  histEdit = null;
+  editSet = null;
+  save(); render();
+}
+function rmHistSet(ei, si) {
+  const w = S.workouts.find(w => w.id === histEdit);
+  if (!w) return;
+  editSet = null;
+  w.entries[ei].sets.splice(si, 1);
+  save(); render();
+}
+function addHistSet(ei) {
+  const w = S.workouts.find(w => w.id === histEdit);
+  if (!w) return;
+  const e = w.entries[ei];
+  if (isCardio(e)) {
+    const mins = parseFloat(document.getElementById(`h-min-${ei}`).value);
+    if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
+    e.sets.push({ mins: Math.round(mins * 10) / 10 });
+  } else {
+    const reps = parseInt(document.getElementById(`h-reps-${ei}`).value, 10);
+    const kg = parseFloat(document.getElementById(`h-kg-${ei}`).value);
+    if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
+    if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    e.sets.push({ reps, weight: kg });
+  }
   save(); render();
 }
 
@@ -1157,7 +1388,9 @@ function delWorkout(id) {
 let anaPlans = [];
 let selAnaPlan = null;
 let anaMode = 'plans';
-const e1rm = s => s.weight * (1 + s.reps / 30); // Epley-Formel
+/* Geschätztes 1RM nach Epley, RPE-korrigiert: hat ein Satz RPE, zählt die
+   Wiederholungs-Reserve mit (RIR = 10 − RPE) – 8×80 @RPE 8 ist stärker als 8×80 @RPE 10. */
+const e1rmAdj = s => s.weight * (1 + (s.reps + (s.rpe ? 10 - s.rpe : 0)) / 30);
 const r1 = v => Math.round(v * 10) / 10;
 
 function lineChart(vals, color) {
@@ -1178,10 +1411,15 @@ function lineChart(vals, color) {
 function rAnalysis() {
   let h = `<h1>Analyse</h1><div class="sub">Deine Entwicklung im Blick</div><div style="height:16px"></div>
     <div class="seg">
-      <button class="${anaMode === 'plans' ? 'on' : ''}" onclick="setAnaMode('plans')">Kraft pro Plan</button>
-      <button class="${anaMode === 'muscles' ? 'on' : ''}" onclick="setAnaMode('muscles')">Muskelgruppen</button>
+      <button class="${anaMode === 'plans' ? 'on' : ''}" onclick="setAnaMode('plans')">Pläne</button>
+      <button class="${anaMode === 'exercises' ? 'on' : ''}" onclick="setAnaMode('exercises')">Übungen</button>
+      <button class="${anaMode === 'muscles' ? 'on' : ''}" onclick="setAnaMode('muscles')">Muskeln</button>
+      <button class="${anaMode === 'weeks' ? 'on' : ''}" onclick="setAnaMode('weeks')">Wochen</button>
     </div>`;
-  return h + (anaMode === 'muscles' ? rMuscleStats() : rPlanAnalysis());
+  return h + (anaMode === 'muscles' ? rMuscleStats()
+    : anaMode === 'exercises' ? rExerciseAnalysis()
+    : anaMode === 'weeks' ? rWeekStats()
+    : rPlanAnalysis());
 }
 function setAnaMode(m) { anaMode = m; render(); }
 
@@ -1214,8 +1452,35 @@ function rPlanAnalysis() {
     h += `<div class="card"><div class="sub">Absolviere mindestens 2 Trainings mit diesem Plan, um Verlaufskurven zu sehen.</div></div>`;
   }
 
+  // Kraft pro Einheit: Ø des besten (RPE-korrigierten) 1RM je Übung – Stärke statt Menge
+  const strengths = [];
+  for (const w of sessions) {
+    const best = [];
+    for (const e of w.entries) {
+      const ss = e.sets.filter(s => s.mins == null && !isWarmup(s));
+      if (ss.length) best.push(Math.max(...ss.map(e1rmAdj)));
+    }
+    if (best.length) strengths.push(best.reduce((a, b) => a + b, 0) / best.length);
+  }
+  const rpesLast = [];
+  for (const e of sessions[sessions.length - 1].entries)
+    for (const s of e.sets) if (s.rpe) rpesLast.push(s.rpe);
+  if (strengths.length) {
+    const strDiff = strengths.length >= 2 && strengths[0] > 0 ? Math.round((strengths[strengths.length - 1] - strengths[0]) / strengths[0] * 100) : null;
+    h += `<div class="stats" style="margin:0 0 12px">
+      <div class="stat"><div class="v">${r1(strengths[strengths.length - 1])}</div><div class="l">Ø Kraftwert zuletzt</div></div>
+      <div class="stat"><div class="v" style="color:${strDiff === null ? 'var(--muted)' : strDiff >= 0 ? 'var(--accent2)' : 'var(--danger)'}">${strDiff === null ? '–' : (strDiff >= 0 ? '+' : '') + strDiff + '%'}</div><div class="l">Kraft-Trend</div></div>
+      <div class="stat"><div class="v">${rpesLast.length ? r1(rpesLast.reduce((a, b) => a + b, 0) / rpesLast.length) : '–'}</div><div class="l">Ø RPE zuletzt</div></div>
+    </div>`;
+    if (strengths.length >= 2) {
+      h += `<div class="card"><b>Kraft pro Einheit</b>
+        <div class="hint" style="margin-bottom:6px">Ø des besten geschätzten 1RM je Übung (RPE-korrigiert) – zeigt Stärkeentwicklung statt Menge</div>
+        ${lineChart(strengths.map(r1), 'var(--accent)')}</div>`;
+    }
+  }
+
   h += `<h2>Kraft pro Übung</h2>
-    <div class="hint" style="margin:-4px 0 12px">Kraftwert = geschätztes 1RM nach Epley: Gewicht × (1 + Wdh. ÷ 30). So sind Hypertrophie- und Maximalkraft-Einheiten vergleichbar.</div>`;
+    <div class="hint" style="margin:-4px 0 12px">Kraftwert = geschätztes 1RM nach Epley: Gewicht × (1 + Wdh. ÷ 30), bei erfasstem RPE um die Wiederholungs-Reserve korrigiert. So sind Hypertrophie- und Maximalkraft-Einheiten vergleichbar.</div>`;
 
   const exNames = [];
   for (const w of sessions) for (const e of w.entries)
@@ -1227,7 +1492,7 @@ function rPlanAnalysis() {
       const e = w.entries.find(e => e.name.toLowerCase() === name.toLowerCase());
       if (!e) continue;
       const strengthSets = e.sets.filter(s => s.mins == null && !isWarmup(s));
-      if (strengthSets.length) pts.push({ est: Math.max(...strengthSets.map(e1rm)), top: Math.max(...strengthSets.map(s => s.weight)) });
+      if (strengthSets.length) pts.push({ est: Math.max(...strengthSets.map(e1rmAdj)), top: Math.max(...strengthSets.map(s => s.weight)) });
     }
     if (!pts.length) continue; // reine Cardio-Übungen haben keine Kraftkurve
     const first = pts[0].est, last = pts[pts.length - 1].est;
@@ -1249,6 +1514,111 @@ function rPlanAnalysis() {
   return h;
 }
 function pickAnaPlan(i) { selAnaPlan = anaPlans[i]; render(); }
+
+/* ===== Übungs-Analyse (planübergreifend) ===== */
+function rExerciseAnalysis() {
+  // Übungen mit Kraft-Sätzen, zuletzt trainierte zuerst
+  const names = [];
+  for (const w of [...S.workouts].sort((a, b) => b.date.localeCompare(a.date)))
+    for (const e of w.entries)
+      if (e.sets.some(s => s.mins == null) && !names.some(n => n.toLowerCase() === e.name.toLowerCase())) names.push(e.name);
+  anaExNames = names;
+  if (!names.length) {
+    return `<div class="empty"><span class="big">📈</span>Noch keine Kraft-Daten.<br>Absolviere Trainings – dann siehst du hier<br>deine Entwicklung pro Übung.</div>`;
+  }
+  if (!selAnaEx || !names.some(n => n.toLowerCase() === selAnaEx.toLowerCase())) selAnaEx = names[0];
+  let h = `<div class="hint" style="margin:0 4px 10px">Kraftentwicklung über ALLE Trainings – egal, in welchem Plan die Übung vorkam.</div>
+    <div class="chips" style="margin-bottom:16px">${names.slice(0, 20).map((n, i) =>
+    `<button class="chip ${n === selAnaEx ? 'on' : ''}" onclick="pickAnaEx(${i})">${esc(n)}</button>`).join('')}</div>`;
+
+  // alle Einheiten mit dieser Übung, planunabhängig, ohne Aufwärmsätze
+  const pts = [];
+  for (const w of [...S.workouts].sort((a, b) => a.date.localeCompare(b.date))) {
+    const e = w.entries.find(e => e.name.toLowerCase() === selAnaEx.toLowerCase());
+    if (!e) continue;
+    const ss = e.sets.filter(s => s.mins == null && !isWarmup(s));
+    if (!ss.length) continue;
+    const rpes = ss.filter(s => s.rpe);
+    pts.push({
+      est: Math.max(...ss.map(e1rmAdj)),
+      top: Math.max(...ss.map(s => s.weight)),
+      rpe: rpes.length ? rpes.reduce((a, b) => a + b.rpe, 0) / rpes.length : null
+    });
+  }
+  if (!pts.length) return h + `<div class="card"><div class="sub">Für diese Übung gibt es noch keine Kraft-Sätze.</div></div>`;
+  const first = pts[0].est, lastP = pts[pts.length - 1].est;
+  const pct = first > 0 ? Math.round((lastP - first) / first * 100) : null;
+  const ms = musclesFor(selAnaEx);
+  h += `<div class="card">
+    <div class="listitem">
+      <div><b style="font-size:16px">${esc(selAnaEx)}</b>${ms.length ? ' &nbsp;' + ms.map(badge).join(' ') : ''}</div>
+      <div style="text-align:right"><span style="font-size:19px;font-weight:800;color:var(--accent)">${r1(lastP)} kg</span>
+        ${pts.length > 1 ? `<div class="sub" style="font-size:12px;color:${lastP - first >= 0 ? 'var(--accent2)' : 'var(--danger)'}">${lastP - first >= 0 ? '+' : ''}${r1(lastP - first)} kg${pct !== null ? ' (' + (pct >= 0 ? '+' : '') + pct + '%)' : ''}</div>` : ''}
+      </div>
+    </div>
+    <div class="hint">${pts.length} Einheiten · schwerster Satz zuletzt: <b>${pts[pts.length - 1].top} kg</b></div>
+    ${pts.length >= 2 ? `<div style="margin-top:8px">${lineChart(pts.map(p => p.est), 'var(--accent)')}</div>`
+      : `<div class="hint">Noch zu wenige Einheiten für eine Kurve.</div>`}
+  </div>`;
+
+  // Ø RPE pro Einheit – sinkender RPE bei gleicher/steigender Last = stärker geworden
+  const rpePts = pts.filter(p => p.rpe != null).map(p => r1(p.rpe));
+  if (rpePts.length >= 2) {
+    h += `<div class="card"><b>Ø RPE pro Einheit</b>
+      <div class="hint" style="margin-bottom:6px">Sinkt der RPE, während die Kraftkurve steigt, bist du wirklich stärker geworden</div>
+      ${lineChart(rpePts, 'var(--orange)')}</div>`;
+  } else {
+    h += `<div class="card"><div class="sub">Trage beim Training RPE ein (Anstrengung 1–10), um hier deine Belastung auszuwerten.</div></div>`;
+  }
+  return h;
+}
+function pickAnaEx(i) { selAnaEx = anaExNames[i]; render(); }
+
+/* ===== Wochenübersicht ===== */
+function rWeekStats() {
+  if (!S.workouts.length) {
+    return `<div class="empty"><span class="big">📅</span>Noch keine Trainings.<br>Leg los – dann siehst du hier deine Wochenbilanz.</div>`;
+  }
+  const mon = new Date(); mon.setHours(0, 0, 0, 0); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+  const weeks = [];
+  for (let k = 7; k >= 0; k--) {
+    const s = new Date(mon); s.setDate(s.getDate() - 7 * k);
+    const e = new Date(s); e.setDate(e.getDate() + 7);
+    weeks.push({ s, e, n: 0, sets: 0, vol: 0, rs: 0, rc: 0 });
+  }
+  for (const w of S.workouts) {
+    const t = new Date(w.date);
+    for (const wk of weeks) {
+      if (t >= wk.s && t < wk.e) {
+        wk.n++;
+        wk.vol += volume(w);
+        for (const en of w.entries) for (const st of en.sets) {
+          if (!isWarmup(st)) wk.sets++;
+          if (st.rpe) { wk.rs += st.rpe; wk.rc++; }
+        }
+      }
+    }
+  }
+  let h = `<div class="hint" style="margin:0 4px 12px">Die letzten 8 Wochen – so siehst du, ob du dranbleibst und wie hart die Wochen waren.</div>`;
+  h += `<div class="card"><b>Volumen pro Woche</b>
+    <div class="hint" style="margin-bottom:6px">Summe aus Gewicht × Wiederholungen (ohne Aufwärmsätze)</div>
+    ${lineChart(weeks.map(w => Math.round(w.vol)), 'var(--accent2)')}</div>`;
+  const maxVol = Math.max(...weeks.map(w => w.vol), 1);
+  h += `<div class="card">`;
+  [...weeks].reverse().forEach((wk, i) => {
+    const label = i === 0 ? 'Diese Woche'
+      : wk.s.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' }) + ' – ' + new Date(wk.e - 1).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+    h += `<div style="padding:${i === 0 ? '4px' : '14px'} 0 4px">
+      <div class="listitem">
+        <b style="font-size:15px">${label}</b>
+        <span class="sub" style="margin:0">${wk.n}× · ${wk.sets} Sätze · ${Math.round(wk.vol).toLocaleString('de-DE')} kg${wk.rc ? ' · Ø RPE ' + r1(wk.rs / wk.rc) : ''}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${Math.round(wk.vol / maxVol * 100)}%;background:var(--accent)"></div></div>
+    </div>`;
+  });
+  h += `</div>`;
+  return h;
+}
 
 function rMuscleStats() {
   const cutoff = Date.now() - 30 * 864e5;

@@ -3,7 +3,7 @@
    - holt online immer die neueste index.html (network-first), damit Updates ankommen
    - meldet sich per skipWaiting, wenn der Nutzer auf "Jetzt laden" tippt
 */
-const CACHE = 'gym-v1';
+const CACHE = 'gym-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
