@@ -201,6 +201,50 @@
   .ss-badge { background: var(--fill); color: var(--orange); }
   .ss-toggle { text-align: center; margin: -6px 0 6px; }
 
+  /* ---- Kompakte Pausen-Zeile ---- */
+  .restrow {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin: 14px 0 14px;
+  }
+  .restrow .chip { padding: 6px 11px; font-size: 13px; background: var(--card); }
+  .restrow .chip.on { background: var(--accent); color: #fff; }
+  .restrow .hint { margin-right: 2px; }
+
+  /* ---- Übungskarte im Training: kompaktere Kopfzeile ---- */
+  .excard .iconbtn { width: 30px; height: 30px; font-size: 13px; border-radius: 9px; }
+  .excard .badge { font-size: 10px; padding: 2px 7px; }
+  .excard .exname { font-size: 16px; font-weight: 700; }
+  .excard .setpill { padding: 6px 10px; font-size: 13px; }
+
+  /* ---- Eingabezeile & einklappbare Optionen ---- */
+  .inputrow { margin-top: 12px; }
+  .inputrow input { text-align: center; padding: 13px 8px; }
+  .optbtn {
+    display: flex; align-items: center; gap: 5px;
+    background: none; border: none; color: var(--muted);
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 2px 2px; cursor: pointer; width: 100%;
+  }
+  .optbtn.on { color: var(--accent); }
+  .optdot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .opts {
+    background: var(--fill); border-radius: 12px;
+    padding: 10px 12px; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .optrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .optlabel { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; flex: 0 0 58px; }
+  .opts .chip { padding: 6px 11px; font-size: 13px; background: var(--card); }
+  .opts .chip.on { background: var(--accent); color: #fff; }
+
+  /* ---- Aufklapp-Karte (Formulare) ---- */
+  .addbtn {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; background: var(--card); border: none; color: var(--accent);
+    font-family: inherit; font-size: 16px; font-weight: 600;
+    border-radius: var(--radius); padding: 15px; cursor: pointer; margin-bottom: 12px;
+  }
+
   /* ---- Pausen-Timer ---- */
   #restbar {
     display: none; position: fixed; left: 16px; right: 16px;
@@ -337,6 +381,10 @@ let selWtype = '';           // Gewichtsart für neue Übungen: '' | 'db' | 'bw'
 let wtypeTouched = false;    // true, sobald manuell gewählt -> keine Automatik mehr
 let editExWt = '';           // Gewichtsart im Übungs-Editor (Plan & Training)
 let bwSel = null;            // Auswahl bei der einmaligen Körpergewichts-Erkennung
+let openOpts = null;         // Übung, deren Zusatz-Optionen (Satztyp, Zusatzgewicht) offen sind
+let showAddWo = false;       // Formular „Übung hinzufügen" im Training offen?
+let showAddPlan = false;     // Formular „Neue Übung" im Plan-Editor offen?
+let showSettings = false;    // Einstellungen auf der Startseite offen?
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -539,15 +587,17 @@ function rHome() {
     h += `<button class="btn ghost sm" style="margin-top:6px" onclick="startWorkout(null)">Freies Training (ohne Plan)</button>`;
   }
 
-  h += `<h2>Einstellungen & Daten</h2>`;
+  h += `<div style="height:26px"></div>`;
 
-  // Einmalige Umstellung: Übungen, die du immer mit 0 kg eingetragen hast
-  const cands = bwCandidates();
+  // Einmalige Umstellung: Übungen, die du immer mit 0 kg eingetragen hast.
+  // Verschwindet dauerhaft, sobald du sie einmal angewendet oder weggetippt hast.
+  const cands = S.settings.bwDone ? [] : bwCandidates();
   if (cands.length) {
     if (bwSel === null) bwSel = cands.filter(c => guessWtype(c.name) === 'bw').map(c => c.name);
     const doneSets = cands.reduce((t, c) => t + (bwSel.includes(c.name) ? c.sets : 0), 0);
     h += `<div class="card" style="margin-bottom:12px">
-      <b style="font-size:15px">Körpergewichts-Übungen erkennen</b>
+      <div class="listitem"><b style="font-size:15px">Körpergewichts-Übungen erkennen</b>
+        <button class="iconbtn" title="Ausblenden" onclick="dismissBwCard()">✕</button></div>
       <div class="hint" style="margin:6px 0 10px">Diese Übungen hast du bisher immer mit <b>0 kg</b> eingetragen. Wähle aus, welche davon mit deinem Körpergewicht gerechnet werden sollen – dann zählen sie endlich richtig in Volumen und Kurven. Tippen zum Ab-/Anwählen.</div>
       <div class="chips">${cands.map((c, i) =>
         `<button class="chip ${bwSel.includes(c.name) ? 'on' : ''}" onclick="toggleBwSel(${i})">${esc(c.name)}${c.sets ? ` <span style="opacity:.65;font-weight:400">${c.sets}</span>` : ''}</button>`).join('')}
@@ -556,28 +606,30 @@ function rHome() {
     </div>`;
   }
 
-  h += `<div class="card" style="padding:12px 16px;margin-bottom:12px">
-      <div class="listitem" style="margin-bottom:10px"><b style="font-size:15px">Design</b></div>
-      <div class="seg" style="margin-bottom:4px">
-        <button class="${S.settings.theme === 'auto' ? 'on' : ''}" onclick="setTheme('auto')">Auto</button>
-        <button class="${S.settings.theme === 'light' ? 'on' : ''}" onclick="setTheme('light')">Hell</button>
-        <button class="${S.settings.theme === 'dark' ? 'on' : ''}" onclick="setTheme('dark')">Dunkel</button>
-      </div>
-    </div>
-    <div class="card" style="padding:8px 16px">
-      <div class="listitem" style="padding:10px 0;border-bottom:0.5px solid var(--sep);cursor:pointer" onclick="loadTemplates(false)">
-        <div><b style="font-size:15px">Meine Trainingspläne laden</b><div class="hint" style="margin-top:2px">Fügt die 10 Pläne aus deiner Numbers-Tabelle hinzu</div></div>
-        <div style="color:var(--muted)">›</div>
-      </div>
-      <div class="listitem" style="padding:10px 0;border-bottom:0.5px solid var(--sep);cursor:pointer" onclick="exportData()">
-        <div><b style="font-size:15px">Daten exportieren</b><div class="hint" style="margin-top:2px">Backup-Datei sichern (z. B. in iCloud)</div></div>
-        <div style="color:var(--muted)">›</div>
-      </div>
-      <div class="listitem" style="padding:10px 0;cursor:pointer" onclick="document.getElementById('imp').click()">
-        <div><b style="font-size:15px">Daten importieren</b><div class="hint" style="margin-top:2px">Backup wiederherstellen</div></div>
-        <div style="color:var(--muted)">›</div>
-      </div>
-    </div>
+  h += `<div class="card" style="padding:8px 16px">
+      <div class="listitem" style="padding:12px 0;cursor:pointer" onclick="toggleSettings()">
+        <b style="font-size:15px">Einstellungen &amp; Backup</b>
+        <div style="color:var(--muted)">${showSettings ? '▴' : '▾'}</div>
+      </div>`;
+  if (showSettings) {
+    h += `<div style="border-top:0.5px solid var(--sep);padding:14px 0 4px">
+        <div class="hint" style="margin:0 2px 8px">Design</div>
+        <div class="seg" style="margin-bottom:16px">
+          <button class="${S.settings.theme === 'auto' ? 'on' : ''}" onclick="setTheme('auto')">Auto</button>
+          <button class="${S.settings.theme === 'light' ? 'on' : ''}" onclick="setTheme('light')">Hell</button>
+          <button class="${S.settings.theme === 'dark' ? 'on' : ''}" onclick="setTheme('dark')">Dunkel</button>
+        </div>
+        <div class="listitem" style="padding:10px 0;border-top:0.5px solid var(--sep);cursor:pointer" onclick="exportData()">
+          <div><b style="font-size:15px">Daten exportieren</b><div class="hint" style="margin-top:2px">Backup sichern (z. B. in iCloud)</div></div>
+          <div style="color:var(--muted)">›</div>
+        </div>
+        <div class="listitem" style="padding:10px 0;border-top:0.5px solid var(--sep);cursor:pointer" onclick="document.getElementById('imp').click()">
+          <div><b style="font-size:15px">Daten importieren</b><div class="hint" style="margin-top:2px">Backup wiederherstellen</div></div>
+          <div style="color:var(--muted)">›</div>
+        </div>
+      </div>`;
+  }
+  h += `</div>
     <input type="file" id="imp" accept=".json,application/json" style="display:none" onchange="importData(event)">`;
   return h;
 }
@@ -652,12 +704,14 @@ function rPlans() {
 function newPlan() {
   editPlan = { id: uid(), name: '', exercises: [], isNew: true };
   editExIdx = null;
+  showAddPlan = true;   // neuer Plan: Eingabe gleich offen
   cur = 'planEdit'; render(); scrollTo(0, 0);
 }
 function openPlan(id) {
   const p = S.plans.find(p => p.id === id);
   editPlan = JSON.parse(JSON.stringify(p));
   editExIdx = null;
+  showAddPlan = false;  // bestehender Plan: erst mal nur die Übungen zeigen
   cur = 'planEdit'; render(); scrollTo(0, 0);
 }
 function delPlan(id) {
@@ -704,12 +758,13 @@ function rPlanEdit() {
         </div>
       </div>`;
     } else {
-      h += `<div class="card" style="padding:13px 16px"><div class="listitem">
-        <div style="flex:1;cursor:pointer" onclick="startExEdit(${i})"><b>${esc(e.name)}</b>
-          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${badges(e)} ${wtBadge(e)}
-            <span class="hint" style="display:inline;margin:0">· ${e.target || 3} Sätze · tippen zum Bearbeiten</span></div></div>
-        <div style="display:flex;gap:6px">
-          <button class="iconbtn" onclick="startExEdit(${i})">✎</button>
+      h += `<div class="card excard" style="padding:13px 16px"><div class="listitem" style="align-items:flex-start">
+        <div style="flex:1;cursor:pointer;min-width:0" onclick="startExEdit(${i})">
+          <div class="exname">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></div>
+          <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${badges(e)} ${wtBadge(e)}</div>
+          <div class="hint" style="margin-top:6px">${e.target || 3} Sätze · tippen zum Bearbeiten</div>
+        </div>
+        <div style="display:flex;gap:5px;flex-shrink:0">
           <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveEx(${i},-1)">↑</button>
           <button class="iconbtn" ${i === p.exercises.length - 1 ? 'disabled' : ''} onclick="moveEx(${i},1)">↓</button>
           <button class="iconbtn" onclick="rmPlanEx(${i})">✕</button>
@@ -720,22 +775,27 @@ function rPlanEdit() {
       h += `<div class="ss-toggle"><button class="chip ${e.ss ? 'on' : ''}" style="padding:5px 12px;font-size:12px" onclick="toggleSS(${i})">⇄ Supersatz</button></div>`;
     }
   });
-  h += `<div class="card" style="margin-top:14px">
-    <label class="fld" style="margin-top:0">Neue Übung</label>
-    <div class="row">
-      <input id="ex-name" placeholder="z. B. Bankdrücken" value="${esc(p._draft || '')}" oninput="filterSuggest('plan')">
-      <input id="ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(p._draftSets || 3)}" style="flex:0 0 76px" title="Sätze">
-    </div>
-    <div class="hint" style="margin:4px 4px 0">Rechts: Anzahl der Sätze (Ziel)</div>
-    <div class="chips" id="sugg-plan" style="margin-top:8px"></div>
-    <label class="fld">Muskelgruppen (mehrere möglich)</label>
-    <div class="chips">${MUSCLES.map(([m]) =>
-      `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscle('${m}')">${m}</button>`).join('')}
-    </div>
-    ${wtypeChips(selWtype, 'pickWtypeNew', 'wt-plan')}
-    <button class="btn sm ghost" style="margin-top:14px" onclick="addPlanEx()">+ Übung hinzufügen</button>
-  </div>
-  <button class="btn" style="margin-top:8px" onclick="savePlan()">Plan speichern</button>`;
+  if (!showAddPlan) {
+    h += `<button class="addbtn" style="margin-top:14px" onclick="toggleAddPlan()">＋ Übung hinzufügen</button>`;
+  } else {
+    h += `<div class="card" style="margin-top:14px">
+      <div class="listitem" style="margin-bottom:10px"><b style="font-size:15px">Neue Übung</b>
+        <button class="iconbtn" onclick="toggleAddPlan()">✕</button></div>
+      <div class="row">
+        <input id="ex-name" placeholder="z. B. Bankdrücken" value="${esc(p._draft || '')}" oninput="filterSuggest('plan')">
+        <input id="ex-sets" type="number" inputmode="numeric" min="1" max="10" value="${esc(p._draftSets || 3)}" style="flex:0 0 72px" title="Sätze">
+      </div>
+      <div class="hint" style="margin:4px 4px 0">Rechts: Anzahl der Sätze (Ziel)</div>
+      <div class="chips" id="sugg-plan" style="margin-top:8px"></div>
+      <label class="fld">Muskelgruppen (mehrere möglich)</label>
+      <div class="chips">${MUSCLES.map(([m]) =>
+        `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscle('${m}')">${m}</button>`).join('')}
+      </div>
+      ${wtypeChips(selWtype, 'pickWtypeNew', 'wt-plan')}
+      <button class="btn sm ghost" style="margin-top:14px" onclick="addPlanEx()">+ Übung hinzufügen</button>
+    </div>`;
+  }
+  h += `<button class="btn" style="margin-top:8px" onclick="savePlan()">Plan speichern</button>`;
   return h;
 }
 function moveEx(i, d) {
@@ -911,7 +971,8 @@ function addPlanEx() {
   editPlan._draft = '';
   selWtype = ''; wtypeTouched = false;
   render();
-  document.getElementById('ex-name').focus();
+  const el = document.getElementById('ex-name');
+  if (el) el.focus();
 }
 function rmPlanEx(i) {
   syncPlanName();
@@ -976,40 +1037,61 @@ function exBlock(i) {
       <input id="note-${i}" placeholder="Bemerkung – z. B. Stufe 8, 6.000 m" value="${esc(prefillN)}" style="margin-top:8px">`;
   } else {
     const wt = wtOf(e);
-    const prefillW = e.sets.length ? e.sets[e.sets.length - 1].weight : (last && last[last.length - 1].weight != null ? last[last.length - 1].weight : '');
+    // Ab dem zweiten Satz Wdh. UND Gewicht vom vorigen Satz übernehmen –
+    // meist bleibt beides gleich, dann muss nur noch der RPE eingetippt werden.
+    const prev = e.sets.length ? e.sets[e.sets.length - 1] : null;
+    const prefillW = prev ? prev.weight : (last && last[last.length - 1].weight != null ? last[last.length - 1].weight : '');
+    const prefillR = prev && prev.reps != null ? prev.reps : '';
     const t = woSetType[i] || 'normal';
-    const typeSel = `<div class="chips" style="margin-top:10px;align-items:center">
-      <span class="hint" style="display:inline;margin:0 2px">Satztyp:</span>
-      ${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
-        `<button class="chip ${t === v ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="setWoType(${i},'${v}')">${l}</button>`).join('')}
-    </div>`;
     const bw = curBodyWeight();
-    const kgPlaceholder = wt === 'db' ? 'kg je Hantel' : wt === 'bw' ? 'Zusatz kg (0 = ohne)' : 'kg';
+    const kgPlaceholder = wt === 'db' ? 'kg/Hantel' : wt === 'bw' ? '+ kg' : 'kg';
+    const optsOpen = openOpts === i;
+
+    // Zusatz-Optionen (Satztyp, Zusatzgewicht) – eingeklappt, weil selten gebraucht
+    let opts = '';
+    if (optsOpen) {
+      const extras = [0, 2.5, 5, 10, 15, 20];
+      opts = `<div class="opts">
+        <div class="optrow"><span class="optlabel">Satztyp</span>
+          <div class="chips">${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
+            `<button class="chip ${t === v ? 'on' : ''}" onclick="setWoType(${i},'${v}')">${l}</button>`).join('')}</div>
+        </div>
+        ${wt === 'bw' ? `<div class="optrow"><span class="optlabel">Zusatz</span>
+          <div class="chips" id="bwx-${i}">${extras.map(v =>
+            `<button class="chip ${(+prefillW || 0) === v ? 'on' : ''}" data-kg="${v}" onclick="setBwExtra(${i},${v})">${v === 0 ? 'ohne' : '+' + String(v).replace('.', ',')}</button>`).join('')}</div>
+        </div>` : ''}
+        ${wt === 'db' ? `<div class="hint" style="margin:2px 2px 0">Trag das Gewicht <b>einer</b> Hantel ein – gerechnet wird das Doppelte.</div>` : ''}
+      </div>`;
+    }
+
+    // Kurzer Statushinweis statt langem Fließtext
     let wtHint = '';
-    if (wt === 'db') wtHint = `<div class="hint" style="margin:6px 4px 0">Kurzhantel: Gewicht <b>einer</b> Hantel eintragen – gerechnet wird das Doppelte.</div>`;
-    else if (wt === 'bw') wtHint = bw
-      ? `<div class="hint" style="margin:6px 4px 0">Körpergewicht <b>${bw} kg</b> – gerechnet werden <b id="bwsum-${i}">${String(nk(bw + (+prefillW || 0))).replace('.', ',')} kg</b>. Das kg-Feld ist nur für Zusatzgewicht, <b>0 oder leer</b> heißt ohne.</div>`
-      : `<div class="hint" style="margin:6px 4px 0;color:var(--danger)">Trage im Tab „Gewicht" dein Körpergewicht ein, damit diese Übung mitgerechnet wird.</div>`;
-    // Bei Körpergewicht: Schnell-Tasten fürs Zusatzgewicht (Gürtel, Hantel, Weste …)
-    const extras = [0, 2.5, 5, 10, 15, 20];
-    const bwExtra = wt === 'bw' ? `<div class="chips" id="bwx-${i}" style="margin-top:10px;align-items:center">
-      <span class="hint" style="display:inline;margin:0 2px">Zusatzgewicht:</span>
-      ${extras.map(v => `<button class="chip ${(+prefillW || 0) === v ? 'on' : ''}" data-kg="${v}" style="padding:6px 12px;font-size:13px" onclick="setBwExtra(${i},${v})">${v === 0 ? 'ohne' : '+' + String(v).replace('.', ',') + ' kg'}</button>`).join('')}
-    </div>` : '';
-    inputArea = `${typeSel}${bwExtra}<div class="row" style="margin-top:8px">
-      <input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
+    if (wt === 'bw') wtHint = bw
+      ? `<span class="hint" style="margin:0"> · <b id="bwsum-${i}">${String(nk(bw + (+prefillW || 0))).replace('.', ',')} kg</b> gesamt</span>`
+      : `<span class="hint" style="margin:0;color:var(--danger)"> · Körpergewicht fehlt</span>`;
+
+    const badge = t === 'warmup' ? '<span class="optdot" style="background:var(--orange)"></span>'
+      : t === 'drop' ? '<span class="optdot" style="background:var(--accent2)"></span>' : '';
+    inputArea = `<div class="row inputrow">
+      <input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1" value="${prefillR}">
       <input id="kg-${i}" type="number" inputmode="decimal" placeholder="${kgPlaceholder}" step="0.5" min="0" value="${prefillW}" ${wt === 'bw' ? `oninput="markBwExtra(${i})"` : ''}>
-      <input id="rpe-${i}" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px">
-      <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>${wtHint}`;
+      <input id="rpe-${i}" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 58px">
+      <button class="btn sm" style="flex:0 0 78px" onclick="addSet(${i})">+ Satz</button></div>
+      <button class="optbtn ${optsOpen ? 'on' : ''}" onclick="toggleOpts(${i})">${badge}${optsOpen ? '▴' : '▾'} Optionen${wtHint}</button>
+      ${opts}`;
   }
 
-  return `<div class="listitem"><div style="flex:1;cursor:pointer" onclick="startWoExEdit(${i})"><b style="font-size:16px">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></b> &nbsp;${badges(e)} ${wtBadge(e)}</div>
-      <div style="display:flex;gap:6px">
+  return `<div class="listitem" style="align-items:flex-start">
+      <div style="flex:1;cursor:pointer;min-width:0" onclick="startWoExEdit(${i})">
+        <div class="exname">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></div>
+        <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${badges(e)} ${wtBadge(e)}</div>
+      </div>
+      <div style="display:flex;gap:5px;flex-shrink:0">
         <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveWoEx(${i},-1)">↑</button>
         <button class="iconbtn" ${i === w.entries.length - 1 ? 'disabled' : ''} onclick="moveWoEx(${i},1)">↓</button>
         <button class="iconbtn" onclick="rmWoEx(${i})">✕</button>
       </div></div>
-    <div class="hint">${e.target ? `Ziel: <b>${e.target} Sätze</b> · ` : ''}${lastHint}</div>
+    <div class="hint" style="margin-top:8px">${e.target ? `<b>${e.target} Sätze</b> · ` : ''}${lastHint}</div>
     ${ov && !editing ? `<div style="margin-top:8px"><button class="chip" style="padding:6px 12px;font-size:13px;color:var(--accent)" onclick="fillOverload(${i},${ov.reps},${ov.kg})">💡 Vorschlag: ${ovLabel(ov)}</button></div>` : ''}
     ${e.sets.length ? `<div class="chips" style="margin-top:10px">${pills}</div>` : ''}
     ${inputArea}`;
@@ -1073,19 +1155,17 @@ function rWorkout() {
   let h = `<div class="topbar"><button class="back" onclick="go('home')">‹ Start</button>
       <span class="sub">⏱ ${mins} min · ${setCount(w)} Sätze</span></div>
     <h1>${esc(w.planName)}</h1>
-    <div class="card" style="margin-top:16px;padding:13px 16px">
-      <div class="listitem"><b style="font-size:14px">Pausen-Timer</b>
-        <div class="chips">${[0, 60, 90, 120, 180].map(v =>
-          `<button class="chip ${v === (S.settings.rest || 0) ? 'on' : ''}" style="padding:6px 11px;font-size:13px" onclick="setRest(${v})">${v === 0 ? 'Aus' : v + 's'}</button>`).join('')}
-        </div>
-      </div>
+    <div class="restrow">
+      <span class="hint" style="margin:0">Pause</span>
+      ${[0, 60, 90, 120, 180].map(v =>
+        `<button class="chip ${v === (S.settings.rest || 0) ? 'on' : ''}" onclick="setRest(${v})">${v === 0 ? 'Aus' : v + 's'}</button>`).join('')}
     </div>`;
 
   let i = 0;
   while (i < w.entries.length) {
     const e = w.entries[i];
     if (e.ss && i + 1 < w.entries.length) {
-      h += `<div class="card ss-card">
+      h += `<div class="card excard ss-card">
         <span class="badge ss-badge" style="margin-bottom:10px">⇄ SUPERSATZ – im Wechsel, ohne Pause</span>
         <div style="margin-top:10px">${exBlock(i)}</div>
         <div style="border-top:0.5px solid var(--sep);margin:16px 0"></div>
@@ -1094,7 +1174,7 @@ function rWorkout() {
       </div>`;
       i += 2;
     } else {
-      h += `<div class="card">${exBlock(i)}</div>`;
+      h += `<div class="card excard">${exBlock(i)}</div>`;
       if (i + 1 < w.entries.length) {
         h += `<div class="ss-toggle"><button class="chip" style="padding:5px 12px;font-size:12px" onclick="toggleWoSS(${i})">⇄ Mit nächster Übung verbinden</button></div>`;
       }
@@ -1102,8 +1182,13 @@ function rWorkout() {
     }
   }
 
-  h += `<div class="card" style="margin-top:14px">
-      <label class="fld" style="margin-top:0">Übung hinzufügen</label>
+  // Formular nur bei Bedarf – spart im Alltag den halben Bildschirm
+  if (!showAddWo) {
+    h += `<button class="addbtn" style="margin-top:14px" onclick="toggleAddWo()">＋ Übung hinzufügen</button>`;
+  } else {
+    h += `<div class="card" style="margin-top:14px">
+      <div class="listitem" style="margin-bottom:10px"><b style="font-size:15px">Übung hinzufügen</b>
+        <button class="iconbtn" onclick="toggleAddWo()">✕</button></div>
       <input id="wo-ex-name" placeholder="z. B. Klimmzüge" value="${esc(woDraft)}" oninput="filterSuggest('wo')">
       <div class="chips" id="sugg-wo" style="margin-top:8px"></div>
       <label class="fld">Muskelgruppen (mehrere möglich)</label>
@@ -1112,11 +1197,16 @@ function rWorkout() {
       </div>
       ${wtypeChips(selWtype, 'pickWtypeNew', 'wt-wo')}
       <button class="btn sm ghost" style="margin-top:14px" onclick="addWoEx()">+ Hinzufügen</button>
-    </div>
-    <button class="btn" style="margin-top:8px" onclick="finishWorkout()">✓ Training beenden</button>
+    </div>`;
+  }
+  h += `<button class="btn" style="margin-top:8px" onclick="finishWorkout()">✓ Training beenden</button>
     <button class="btn danger sm" style="margin-top:10px" onclick="cancelWorkout()">Training verwerfen</button>`;
   return h;
 }
+function toggleOpts(i) { openOpts = openOpts === i ? null : i; render(); }
+function toggleAddWo() { showAddWo = !showAddWo; render(); }
+function toggleAddPlan() { showAddPlan = !showAddPlan; render(); }
+function toggleSettings() { showSettings = !showSettings; render(); }
 let woDraft = '';
 function pickMuscleWo(m) {
   const el = document.getElementById('wo-ex-name');
@@ -1134,6 +1224,7 @@ function addWoEx() {
   S.active.entries.push(entry);
   woDraft = '';
   selWtype = ''; wtypeTouched = false;
+  showAddWo = false;
   save(); render();
 }
 function rmWoEx(i) {
@@ -1355,8 +1446,16 @@ function applyBwSel() {
   if (!confirm(`${names.length} Übung(en) auf Körpergewicht umstellen?\n\n${names.join(', ')}\n\n${sets} bereits gespeicherte Sätze werden mit deinem Körpergewicht vom jeweiligen Trainingstag nachgerechnet. Volumen und Kurven verändern sich dadurch rückwirkend.`)) return;
   for (const n of names) convertExercise(n, 'bw');
   bwSel = null;
+  S.settings.bwDone = true;   // erledigt – Karte nicht mehr anzeigen
   save(); render();
-  alert(`Fertig ✓  ${names.length} Übung(en) zählen jetzt mit Körpergewicht.`);
+  alert(`Fertig ✓  ${names.length} Übung(en) zählen jetzt mit Körpergewicht.\n\nDie Karte wird nicht mehr angezeigt. Einzelne Übungen kannst du weiterhin im Plan über ✎ umstellen.`);
+}
+/* Karte ausblenden, ohne etwas umzustellen */
+function dismissBwCard() {
+  if (!confirm('Hinweis dauerhaft ausblenden?\n\nEinzelne Übungen kannst du weiterhin jederzeit im Plan über ✎ auf Körpergewicht stellen.')) return;
+  S.settings.bwDone = true;
+  bwSel = null;
+  save(); render();
 }
 
 /* Beschriftung des Vorschlag-Chips – je nach Gewichtsart */
