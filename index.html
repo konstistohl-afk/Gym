@@ -336,6 +336,7 @@ let selMuscles = ['Brust'];
 let selWtype = '';           // Gewichtsart für neue Übungen: '' | 'db' | 'bw'
 let wtypeTouched = false;    // true, sobald manuell gewählt -> keine Automatik mehr
 let editExWt = '';           // Gewichtsart im Übungs-Editor (Plan & Training)
+let bwSel = null;            // Auswahl bei der einmaligen Körpergewichts-Erkennung
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -538,8 +539,24 @@ function rHome() {
     h += `<button class="btn ghost sm" style="margin-top:6px" onclick="startWorkout(null)">Freies Training (ohne Plan)</button>`;
   }
 
-  h += `<h2>Einstellungen & Daten</h2>
-    <div class="card" style="padding:12px 16px;margin-bottom:12px">
+  h += `<h2>Einstellungen & Daten</h2>`;
+
+  // Einmalige Umstellung: Übungen, die du immer mit 0 kg eingetragen hast
+  const cands = bwCandidates();
+  if (cands.length) {
+    if (bwSel === null) bwSel = cands.filter(c => guessWtype(c.name) === 'bw').map(c => c.name);
+    const doneSets = cands.reduce((t, c) => t + (bwSel.includes(c.name) ? c.sets : 0), 0);
+    h += `<div class="card" style="margin-bottom:12px">
+      <b style="font-size:15px">Körpergewichts-Übungen erkennen</b>
+      <div class="hint" style="margin:6px 0 10px">Diese Übungen hast du bisher immer mit <b>0 kg</b> eingetragen. Wähle aus, welche davon mit deinem Körpergewicht gerechnet werden sollen – dann zählen sie endlich richtig in Volumen und Kurven. Tippen zum Ab-/Anwählen.</div>
+      <div class="chips">${cands.map((c, i) =>
+        `<button class="chip ${bwSel.includes(c.name) ? 'on' : ''}" onclick="toggleBwSel(${i})">${esc(c.name)}${c.sets ? ` <span style="opacity:.65;font-weight:400">${c.sets}</span>` : ''}</button>`).join('')}
+      </div>
+      <button class="btn sm" style="margin-top:14px${bwSel.length ? '' : ';opacity:.4'}" ${bwSel.length ? '' : 'disabled'} onclick="applyBwSel()">Als Körpergewicht rechnen${doneSets ? ` (${doneSets} Sätze)` : ''}</button>
+    </div>`;
+  }
+
+  h += `<div class="card" style="padding:12px 16px;margin-bottom:12px">
       <div class="listitem" style="margin-bottom:10px"><b style="font-size:15px">Design</b></div>
       <div class="seg" style="margin-bottom:4px">
         <button class="${S.settings.theme === 'auto' ? 'on' : ''}" onclick="setTheme('auto')">Auto</button>
@@ -598,7 +615,7 @@ function importData(ev) {
       if (!d.orms) d.orms = [];
       if (!d.weights) d.weights = [];
       if (!d.settings) d.settings = { rest: 90, theme: 'auto' };
-      S = d; save(); applyTheme(); render();
+      S = d; bwSel = null; save(); applyTheme(); render();
       alert('Import erfolgreich! ✓');
     } catch (e) {
       alert('Das ist keine gültige Backup-Datei.');
@@ -967,15 +984,21 @@ function exBlock(i) {
         `<button class="chip ${t === v ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="setWoType(${i},'${v}')">${l}</button>`).join('')}
     </div>`;
     const bw = curBodyWeight();
-    const kgPlaceholder = wt === 'db' ? 'kg je Hantel' : wt === 'bw' ? 'Zusatz kg' : 'kg';
+    const kgPlaceholder = wt === 'db' ? 'kg je Hantel' : wt === 'bw' ? 'Zusatz kg (0 = ohne)' : 'kg';
     let wtHint = '';
     if (wt === 'db') wtHint = `<div class="hint" style="margin:6px 4px 0">Kurzhantel: Gewicht <b>einer</b> Hantel eintragen – gerechnet wird das Doppelte.</div>`;
     else if (wt === 'bw') wtHint = bw
-      ? `<div class="hint" style="margin:6px 4px 0">Körpergewicht <b>${bw} kg</b> wird automatisch gerechnet. Feld nur für Zusatzgewicht (leer = ohne).</div>`
+      ? `<div class="hint" style="margin:6px 4px 0">Körpergewicht <b>${bw} kg</b> – gerechnet werden <b id="bwsum-${i}">${String(nk(bw + (+prefillW || 0))).replace('.', ',')} kg</b>. Das kg-Feld ist nur für Zusatzgewicht, <b>0 oder leer</b> heißt ohne.</div>`
       : `<div class="hint" style="margin:6px 4px 0;color:var(--danger)">Trage im Tab „Gewicht" dein Körpergewicht ein, damit diese Übung mitgerechnet wird.</div>`;
-    inputArea = `${typeSel}<div class="row" style="margin-top:8px">
+    // Bei Körpergewicht: Schnell-Tasten fürs Zusatzgewicht (Gürtel, Hantel, Weste …)
+    const extras = [0, 2.5, 5, 10, 15, 20];
+    const bwExtra = wt === 'bw' ? `<div class="chips" id="bwx-${i}" style="margin-top:10px;align-items:center">
+      <span class="hint" style="display:inline;margin:0 2px">Zusatzgewicht:</span>
+      ${extras.map(v => `<button class="chip ${(+prefillW || 0) === v ? 'on' : ''}" data-kg="${v}" style="padding:6px 12px;font-size:13px" onclick="setBwExtra(${i},${v})">${v === 0 ? 'ohne' : '+' + String(v).replace('.', ',') + ' kg'}</button>`).join('')}
+    </div>` : '';
+    inputArea = `${typeSel}${bwExtra}<div class="row" style="margin-top:8px">
       <input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
-      <input id="kg-${i}" type="number" inputmode="decimal" placeholder="${kgPlaceholder}" step="0.5" min="0" value="${prefillW}">
+      <input id="kg-${i}" type="number" inputmode="decimal" placeholder="${kgPlaceholder}" step="0.5" min="0" value="${prefillW}" ${wt === 'bw' ? `oninput="markBwExtra(${i})"` : ''}>
       <input id="rpe-${i}" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px">
       <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>${wtHint}`;
   }
@@ -1024,7 +1047,7 @@ function setEditPanel(i, cardio) {
       </div>`;
   }
   const es = (entriesFor()[i] || { sets: [] }).sets[editSet.si] || {};
-  const kgPh = es.wt === 'db' ? 'kg je Hantel' : es.wt === 'bw' ? 'Zusatz kg' : 'kg';
+  const kgPh = es.wt === 'db' ? 'kg je Hantel' : es.wt === 'bw' ? 'Zusatz kg (0 = ohne)' : 'kg';
   return `<div class="card" style="background:var(--fill);margin-top:12px;padding:12px">
     <div class="hint" style="margin:0 0 8px">Satz ${editSet.si + 1} bearbeiten${es.wt ? ' · ' + wtLabel(es.wt) : ''}</div>
     <div class="chips" style="align-items:center">
@@ -1147,7 +1170,7 @@ function addSet(i) {
   const kg = kgRaw === '' && wt === 'bw' ? 0 : parseFloat(kgRaw); // Körpergewicht: leeres Feld = kein Zusatz
   const rpeRaw = parseInt(document.getElementById(`rpe-${i}`).value, 10);
   if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-  if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+  if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (0 oder leer für ohne Zusatz).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
   const set = { reps, weight: kg };
   if (wt === 'db') set.wt = 'db';
   else if (wt === 'bw') {
@@ -1270,6 +1293,13 @@ function offerHistoryConvert(name, wt) {
   }
   const ziel = wt === 'db' ? 'Kurzhantel (×2)' : wt === 'bw' ? 'Körpergewicht' : 'Normal';
   if (!confirm(`„${name}" wurde auf „${ziel}" umgestellt.\n\nSollen die ${sets} bereits gespeicherten Sätze aus ${sessions} früheren Training(s) ebenfalls so gerechnet werden?\n\nDas verändert Volumen und Kurven rückwirkend.`)) return;
+  convertExercise(name, wt);
+  save();
+}
+/* Stellt eine Übung in Verlauf UND Plänen auf eine Gewichtsart um.
+   Beim Körpergewicht wird das Gewicht des jeweiligen Trainingstags eingesetzt. */
+function convertExercise(name, wt) {
+  const k = name.toLowerCase();
   for (const w of S.workouts) {
     const e = w.entries.find(e => e.name.toLowerCase() === k);
     if (!e) continue;
@@ -1284,7 +1314,49 @@ function offerHistoryConvert(name, wt) {
   // auch in allen Plänen angleichen, damit es überall konsistent ist
   for (const p of S.plans) for (const e of p.exercises)
     if (e.name.toLowerCase() === k) { if (wt) e.wt = wt; else delete e.wt; }
-  save();
+}
+
+/* ===== Einmalige Erkennung: Übungen, die immer mit 0 kg eingetragen wurden =====
+   Genau diese waren bisher Körpergewichts-Übungen. */
+function bwCandidates() {
+  const m = new Map();
+  const key = n => n.toLowerCase();
+  for (const w of S.workouts) for (const e of w.entries) {
+    if (e.wt) continue;
+    const ks = e.sets.filter(s => s.mins == null);
+    if (!ks.length) continue;
+    const k = key(e.name);
+    if (!m.has(k)) m.set(k, { name: e.name, sets: 0, allZero: true, planOnly: false });
+    const c = m.get(k);
+    c.sets += ks.length;
+    if (ks.some(s => (s.weight || 0) !== 0)) c.allZero = false;
+  }
+  // Plan-Übungen, die noch nie trainiert wurden, aber klar nach Körpergewicht klingen
+  for (const p of S.plans) for (const e of p.exercises) {
+    const k = key(e.name);
+    if (e.wt || m.has(k)) continue;
+    if (guessWtype(e.name) === 'bw') m.set(k, { name: e.name, sets: 0, allZero: true, planOnly: true });
+  }
+  return [...m.values()].filter(c => c.allZero);
+}
+function toggleBwSel(i) {
+  const c = bwCandidates()[i];
+  if (!c) return;
+  if (bwSel === null) bwSel = [];
+  const j = bwSel.indexOf(c.name);
+  if (j >= 0) bwSel.splice(j, 1); else bwSel.push(c.name);
+  render();
+}
+function applyBwSel() {
+  if (!bwSel || !bwSel.length) return;
+  if (!S.weights.length) { alert('Trage zuerst im Tab „Gewicht" dein Körpergewicht ein – sonst kann nicht gerechnet werden.'); return; }
+  const names = [...bwSel];
+  const sets = bwCandidates().reduce((t, c) => t + (names.includes(c.name) ? c.sets : 0), 0);
+  if (!confirm(`${names.length} Übung(en) auf Körpergewicht umstellen?\n\n${names.join(', ')}\n\n${sets} bereits gespeicherte Sätze werden mit deinem Körpergewicht vom jeweiligen Trainingstag nachgerechnet. Volumen und Kurven verändern sich dadurch rückwirkend.`)) return;
+  for (const n of names) convertExercise(n, 'bw');
+  bwSel = null;
+  save(); render();
+  alert(`Fertig ✓  ${names.length} Übung(en) zählen jetzt mit Körpergewicht.`);
 }
 
 /* Beschriftung des Vorschlag-Chips – je nach Gewichtsart */
@@ -1293,9 +1365,28 @@ function ovLabel(ov) {
   if (ov.wt === 'bw') return ov.kg > 0 ? `${ov.reps} Wdh. + ${ov.kg} kg` : `${ov.reps} Wdh. (Körpergewicht)`;
   return `${ov.reps}×${ov.kg} kg`;
 }
+/* Zusatzgewicht per Schnell-Taste setzen (ohne Re-Render – Eingaben bleiben erhalten) */
+function setBwExtra(i, kg) {
+  const el = document.getElementById(`kg-${i}`);
+  if (el) el.value = kg;
+  markBwExtra(i);
+}
+/* Passende Schnell-Taste markieren, auch wenn von Hand getippt wird */
+function markBwExtra(i) {
+  const el = document.getElementById(`kg-${i}`);
+  const box = document.getElementById(`bwx-${i}`);
+  if (!el || !box) return;
+  const v = el.value === '' ? 0 : parseFloat(el.value);
+  box.querySelectorAll('.chip').forEach(b => b.classList.toggle('on', parseFloat(b.dataset.kg) === v));
+  // Gesamtgewicht live mitrechnen
+  const sum = document.getElementById(`bwsum-${i}`);
+  const bw = curBodyWeight();
+  if (sum && bw != null) sum.textContent = String(nk(bw + (isNaN(v) ? 0 : v))).replace('.', ',') + ' kg';
+}
 function fillOverload(i, reps, kg) {
   const r = document.getElementById(`reps-${i}`); if (r) r.value = reps;
   const k = document.getElementById(`kg-${i}`); if (k) k.value = kg;
+  markBwExtra(i);
 }
 /* Ziel-Einträge des Satz-Editors: laufendes Training oder Workout im Verlauf */
 function entriesFor() {
@@ -1346,7 +1437,7 @@ function saveSetEdit() {
     const kg = editKg === '' && s.wt === 'bw' ? 0 : parseFloat(editKg);
     const rpe = parseInt(editRpe, 10);
     if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-    if (isNaN(kg) || kg < 0) { alert(s.wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    if (isNaN(kg) || kg < 0) { alert(s.wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (0 oder leer für ohne Zusatz).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
     s.reps = reps;
     s.weight = kg;
     if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) s.rpe = rpe; else delete s.rpe;
@@ -1519,7 +1610,7 @@ function rHistory() {
               <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>
               <input id="h-note-${ei}" placeholder="Bemerkung – z. B. Stufe 8, 6.000 m" style="margin-top:8px">`;
           } else {
-            const ph = wtOf(e) === 'db' ? 'kg je Hantel' : wtOf(e) === 'bw' ? 'Zusatz kg' : 'kg';
+            const ph = wtOf(e) === 'db' ? 'kg je Hantel' : wtOf(e) === 'bw' ? 'Zusatz kg (0 = ohne)' : 'kg';
             h += `<div class="row" style="margin-top:8px">
               <input id="h-reps-${ei}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
               <input id="h-kg-${ei}" type="number" inputmode="decimal" placeholder="${ph}" step="0.5" min="0">
@@ -1583,7 +1674,7 @@ function addHistSet(ei) {
     const kgRaw = document.getElementById(`h-kg-${ei}`).value;
     const kg = kgRaw === '' && wt === 'bw' ? 0 : parseFloat(kgRaw);
     if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-    if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (0 oder leer für ohne Zusatz).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
     const set = { reps, weight: kg };
     if (wt === 'db') set.wt = 'db';
     else if (wt === 'bw') {
