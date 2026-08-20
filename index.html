@@ -333,6 +333,9 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 let cur = 'home';
 let editPlan = null;   // Arbeitskopie beim Plan-Bearbeiten
 let selMuscles = ['Brust'];
+let selWtype = '';           // Gewichtsart für neue Übungen: '' | 'db' | 'bw'
+let wtypeTouched = false;    // true, sobald manuell gewählt -> keine Automatik mehr
+let editExWt = '';           // Gewichtsart im Übungs-Editor (Plan & Training)
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -341,7 +344,7 @@ let editExSets = 3;          // Entwurf: Sätze
 let editExMuscles = [];      // Entwurf: Muskelgruppen
 let woSetType = {};          // Satztyp pro Übung im Training: {index: 'normal'|'warmup'|'drop'}
 let editSet = null;          // gerade bearbeiteter Satz: {ei, si}
-let editReps = '', editKg = '', editRpe = '', editMins = '', editSetType = 'normal';
+let editReps = '', editKg = '', editRpe = '', editMins = '', editSetType = 'normal', editNote = '';
 let editScope = 'active';    // Satz-Editor wirkt auf: 'active' (Training) | 'hist' (Verlauf)
 let editWid = null;          // Workout-ID beim Bearbeiten im Verlauf
 let histEdit = null;         // Workout-ID, das gerade im Verlauf bearbeitet wird
@@ -373,7 +376,47 @@ const isCardio = e => musclesOf(e).includes('Cardio');
 const badges = e => musclesOf(e).map(badge).join(' ');
 const isWarmup = s => s.type === 'warmup';
 const setMark = s => s.type === 'warmup' ? 'W·' : s.type === 'drop' ? 'D·' : '';
-const fmtSet = s => s.mins != null ? `${s.mins} min` : `${setMark(s)}${s.reps}×${s.weight}kg${s.rpe ? ' @' + s.rpe : ''}`;
+
+/* ===== Gewichtsart: '' = normal, 'db' = Kurzhantel (zählt doppelt), 'bw' = Körpergewicht =====
+   Der Satz speichert die Art selbst mit, damit alte Trainings unverändert bleiben,
+   wenn die Übung später umgestellt wird. */
+const wtOf = e => e.wt || '';
+const nk = v => Math.round(v * 10) / 10;  // auf 0,1 kg runden
+function effKg(s) {
+  if (s.wt === 'db') return nk(s.weight * 2);
+  if (s.wt === 'bw') return nk((s.bw || 0) + (s.weight || 0));
+  return s.weight;
+}
+/* Körpergewicht zum Zeitpunkt eines Trainings (nächster Eintrag davor, sonst der erste) */
+function bodyWeightAt(iso) {
+  if (!S.weights.length) return null;
+  const t = new Date(iso).getTime();
+  let best = null;
+  for (const w of S.weights) if (new Date(w.date).getTime() <= t) best = w;
+  return (best || S.weights[0]).kg;
+}
+const curBodyWeight = () => S.weights.length ? S.weights[S.weights.length - 1].kg : null;
+/* Gewichtsart aus dem Übungsnamen erraten (nur als Vorauswahl, jederzeit änderbar) */
+function guessWtype(name) {
+  const n = ' ' + name.toLowerCase() + ' ';
+  if (/kurzhantel|dumbbell|\bkh\b|\bdb\b/.test(n)) return 'db';
+  if (/klimmzug|klimmzüge|klimmziehen|pull.?up|chin.?up|dips?\b|liegestütz|push.?up|bridge|standwaage|planke|plank/.test(n)) return 'bw';
+  return '';
+}
+const wtLabel = wt => wt === 'db' ? 'Kurzhantel ×2' : wt === 'bw' ? 'Körpergewicht' : 'Normal';
+function wtBadge(e) {
+  const wt = wtOf(e);
+  if (!wt) return '';
+  const c = wt === 'db' ? 'var(--orange)' : 'var(--accent2)';
+  return `<span class="badge" style="background:${c}1f;color:${c}">${wt === 'db' ? '2× KH' : 'KG'}</span>`;
+}
+function fmtSet(s) {
+  if (s.mins != null) return `${s.mins} min${s.note ? ' · ' + esc(s.note) : ''}`;
+  const rpe = s.rpe ? ' @' + s.rpe : '';
+  if (s.wt === 'db') return `${setMark(s)}${s.reps}×${effKg(s)} kg (2×${s.weight})${rpe}`;
+  if (s.wt === 'bw') return `${setMark(s)}${s.reps}×${effKg(s)} kg (KG${s.weight > 0 ? '+' + s.weight : ''})${rpe}`;
+  return `${setMark(s)}${s.reps}×${s.weight}kg${rpe}`;
+}
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -409,7 +452,7 @@ function targetFor(name) {
 }
 function volume(w) {
   // Aufwärmsätze zählen nicht zum Trainingsvolumen
-  return w.entries.reduce((s, e) => s + e.sets.reduce((t, x) => t + (x.mins != null || isWarmup(x) ? 0 : x.reps * x.weight), 0), 0);
+  return w.entries.reduce((s, e) => s + e.sets.reduce((t, x) => t + (x.mins != null || isWarmup(x) ? 0 : x.reps * effKg(x)), 0), 0);
 }
 function setCount(w) {
   return w.entries.reduce((s, e) => s + e.sets.length, 0);
@@ -422,6 +465,7 @@ function go(tab) {
   if (tab !== 'history') histEdit = null;
   editSet = null;
   woEditIdx = null;
+  selWtype = ''; wtypeTouched = false;
   render();
   scrollTo(0, 0);
 }
@@ -636,6 +680,7 @@ function rPlanEdit() {
         <div class="chips">${MUSCLES.map(([m]) =>
           `<button class="chip ${editExMuscles.includes(m) ? 'on' : ''}" onclick="pickEditMuscle('${m}')">${m}</button>`).join('')}
         </div>
+        ${wtypeChips(editExWt, 'pickEditWt')}
         <div class="row" style="margin-top:14px">
           <button class="btn sm ghost" onclick="cancelExEdit()">Abbrechen</button>
           <button class="btn sm" onclick="saveExEdit()">Speichern</button>
@@ -644,7 +689,7 @@ function rPlanEdit() {
     } else {
       h += `<div class="card" style="padding:13px 16px"><div class="listitem">
         <div style="flex:1;cursor:pointer" onclick="startExEdit(${i})"><b>${esc(e.name)}</b>
-          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${badges(e)}
+          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${badges(e)} ${wtBadge(e)}
             <span class="hint" style="display:inline;margin:0">· ${e.target || 3} Sätze · tippen zum Bearbeiten</span></div></div>
         <div style="display:flex;gap:6px">
           <button class="iconbtn" onclick="startExEdit(${i})">✎</button>
@@ -670,6 +715,7 @@ function rPlanEdit() {
     <div class="chips">${MUSCLES.map(([m]) =>
       `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscle('${m}')">${m}</button>`).join('')}
     </div>
+    ${wtypeChips(selWtype, 'pickWtypeNew', 'wt-plan')}
     <button class="btn sm ghost" style="margin-top:14px" onclick="addPlanEx()">+ Übung hinzufügen</button>
   </div>
   <button class="btn" style="margin-top:8px" onclick="savePlan()">Plan speichern</button>`;
@@ -713,6 +759,29 @@ function syncPlanName() {
   if (es) editExSets = es.value;
 }
 
+/* ===== Gewichtsart-Umschalter (wiederverwendbar) =====
+   handler bekommt den neuen Wert; boxId nur bei der Live-Automatik gebraucht. */
+function wtypeChips(current, handler, boxId) {
+  return `<label class="fld">Gewichtsart</label>
+    <div class="chips"${boxId ? ` id="${boxId}"` : ''}>
+      ${[['', 'Normal'], ['db', 'Kurzhantel ×2'], ['bw', 'Körpergewicht']].map(([v, l]) =>
+        `<button class="chip ${current === v ? 'on' : ''}" data-wt="${v}" onclick="${handler}('${v}')">${l}</button>`).join('')}
+    </div>
+    <div class="hint" style="margin:6px 4px 0">${current === 'db'
+      ? 'Du trägst das Gewicht <b>einer</b> Hantel ein – gerechnet wird das Doppelte.'
+      : current === 'bw'
+      ? 'Dein Körpergewicht wird automatisch mitgerechnet; das kg-Feld ist dann für Zusatzgewicht.'
+      : 'Langhantel, Maschine, Kabelzug – das eingetragene Gewicht zählt 1:1.'}</div>`;
+}
+function pickWtypeNew(v) {
+  selWtype = v;
+  wtypeTouched = true;
+  if (cur === 'planEdit') syncPlanName(); else { const el = document.getElementById('wo-ex-name'); if (el) woDraft = el.value; }
+  render();
+}
+function pickEditWt(v) { syncPlanName(); editExWt = v; render(); }
+function pickWoEditWt(v) { syncWoExEdit(); editExWt = v; render(); }
+
 /* ===== Übungs-Vorschläge (automatische Bibliothek) =====
    Befüllt die Vorschlagsbox unter dem Namensfeld, ohne die Seite neu zu rendern
    (so bleibt der Fokus beim Tippen erhalten). ctx: 'plan' | 'wo' */
@@ -732,6 +801,27 @@ function filterSuggest(ctx) {
   }).slice(0, 8);
   box.innerHTML = suggList.map((n, i) =>
     `<button class="chip" style="padding:6px 12px;font-size:13px" onclick="pickSuggest(${i},'${ctx}')">${esc(n)}</button>`).join('');
+  autoWtype(el.value, ctx);
+}
+/* Gewichtsart aus dem Namen vorschlagen, solange der Nutzer nicht selbst gewählt hat.
+   Aktualisiert nur die Chip-Markierung per DOM – kein Re-Render, Fokus bleibt im Feld. */
+function autoWtype(name, ctx) {
+  if (wtypeTouched) return;
+  const known = knownWtype(name);
+  const guess = known !== null ? known : guessWtype(name || '');
+  if (guess === selWtype) return;
+  selWtype = guess;
+  const box = document.getElementById(ctx === 'plan' ? 'wt-plan' : 'wt-wo');
+  if (box) box.querySelectorAll('.chip').forEach(b => b.classList.toggle('on', b.dataset.wt === guess));
+}
+/* Gewichtsart einer bereits bekannten Übung (aus Plänen/Trainings), sonst null */
+function knownWtype(name) {
+  const k = (name || '').trim().toLowerCase();
+  if (!k) return null;
+  for (const p of S.plans) { const e = p.exercises.find(e => e.name.toLowerCase() === k); if (e) return wtOf(e); }
+  for (const w of [...S.workouts].sort((a, b) => b.date.localeCompare(a.date)))
+    for (const e of w.entries) if (e.name.toLowerCase() === k && e.wt) return e.wt;
+  return null;
 }
 function pickSuggest(i, ctx) {
   const name = suggList[i];
@@ -760,6 +850,7 @@ function startExEdit(i) {
   editExName = e.name;
   editExSets = e.target || 3;
   editExMuscles = [...musclesOf(e)];
+  editExWt = wtOf(e) || guessWtype(e.name); // noch nicht gesetzt -> aus dem Namen vorschlagen
   render();
   const el = document.getElementById('edit-ex-name');
   if (el) el.focus();
@@ -777,11 +868,14 @@ function saveExEdit() {
   if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
   if (!editExMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
   const e = editPlan.exercises[editExIdx];
+  const wtChanged = wtOf(e) !== editExWt;
   e.name = name;
   e.muscles = [...editExMuscles];
   e.target = Math.max(1, Math.min(10, parseInt(editExSets, 10) || 3));
+  if (editExWt) e.wt = editExWt; else delete e.wt;
   delete e.muscle; // alte Einzel-Eigenschaft entfernen
   editExIdx = null;
+  if (wtChanged) offerHistoryConvert(name, editExWt);
   render();
 }
 function cancelExEdit() {
@@ -794,8 +888,11 @@ function addPlanEx() {
   if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
   if (!selMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
   const target = Math.max(1, Math.min(10, parseInt(editPlan._draftSets, 10) || 3));
-  editPlan.exercises.push({ name, muscles: [...selMuscles], target });
+  const ex = { name, muscles: [...selMuscles], target };
+  if (selWtype) ex.wt = selWtype;
+  editPlan.exercises.push(ex);
   editPlan._draft = '';
+  selWtype = ''; wtypeTouched = false;
   render();
   document.getElementById('ex-name').focus();
 }
@@ -825,7 +922,7 @@ function startWorkout(planId) {
   S.active = {
     planName: p ? p.name : 'Freies Training',
     start: new Date().toISOString(),
-    entries: p ? p.exercises.map(e => ({ name: e.name, muscles: musclesOf(e), target: e.target, ss: e.ss, sets: [] })) : []
+    entries: p ? p.exercises.map(e => ({ name: e.name, muscles: musclesOf(e), target: e.target, ss: e.ss, wt: wtOf(e) || undefined, sets: [] })) : []
   };
   save(); go('workout');
 }
@@ -853,11 +950,15 @@ function exBlock(i) {
   if (editing) {
     inputArea = setEditPanel(i, cardio);
   } else if (cardio) {
-    const prefillM = e.sets.length ? e.sets[e.sets.length - 1].mins : (last && last[last.length - 1].mins != null ? last[last.length - 1].mins : '');
+    const lastSet = e.sets.length ? e.sets[e.sets.length - 1] : (last ? last[last.length - 1] : null);
+    const prefillM = lastSet && lastSet.mins != null ? lastSet.mins : '';
+    const prefillN = lastSet && lastSet.note ? lastSet.note : '';
     inputArea = `<div class="row" style="margin-top:12px">
       <input id="min-${i}" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0" value="${prefillM}">
-      <button class="btn sm" style="flex:0 0 92px" onclick="addSet(${i})">+ Satz</button></div>`;
+      <button class="btn sm" style="flex:0 0 92px" onclick="addSet(${i})">+ Satz</button></div>
+      <input id="note-${i}" placeholder="Bemerkung – z. B. Stufe 8, 6.000 m" value="${esc(prefillN)}" style="margin-top:8px">`;
   } else {
+    const wt = wtOf(e);
     const prefillW = e.sets.length ? e.sets[e.sets.length - 1].weight : (last && last[last.length - 1].weight != null ? last[last.length - 1].weight : '');
     const t = woSetType[i] || 'normal';
     const typeSel = `<div class="chips" style="margin-top:10px;align-items:center">
@@ -865,21 +966,28 @@ function exBlock(i) {
       ${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
         `<button class="chip ${t === v ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="setWoType(${i},'${v}')">${l}</button>`).join('')}
     </div>`;
+    const bw = curBodyWeight();
+    const kgPlaceholder = wt === 'db' ? 'kg je Hantel' : wt === 'bw' ? 'Zusatz kg' : 'kg';
+    let wtHint = '';
+    if (wt === 'db') wtHint = `<div class="hint" style="margin:6px 4px 0">Kurzhantel: Gewicht <b>einer</b> Hantel eintragen – gerechnet wird das Doppelte.</div>`;
+    else if (wt === 'bw') wtHint = bw
+      ? `<div class="hint" style="margin:6px 4px 0">Körpergewicht <b>${bw} kg</b> wird automatisch gerechnet. Feld nur für Zusatzgewicht (leer = ohne).</div>`
+      : `<div class="hint" style="margin:6px 4px 0;color:var(--danger)">Trage im Tab „Gewicht" dein Körpergewicht ein, damit diese Übung mitgerechnet wird.</div>`;
     inputArea = `${typeSel}<div class="row" style="margin-top:8px">
       <input id="reps-${i}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
-      <input id="kg-${i}" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0" value="${prefillW}">
+      <input id="kg-${i}" type="number" inputmode="decimal" placeholder="${kgPlaceholder}" step="0.5" min="0" value="${prefillW}">
       <input id="rpe-${i}" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px">
-      <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>`;
+      <button class="btn sm" style="flex:0 0 84px" onclick="addSet(${i})">+ Satz</button></div>${wtHint}`;
   }
 
-  return `<div class="listitem"><div style="flex:1;cursor:pointer" onclick="startWoExEdit(${i})"><b style="font-size:16px">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></b> &nbsp;${badges(e)}</div>
+  return `<div class="listitem"><div style="flex:1;cursor:pointer" onclick="startWoExEdit(${i})"><b style="font-size:16px">${esc(e.name)} <span style="color:var(--muted);font-size:13px;font-weight:400">✎</span></b> &nbsp;${badges(e)} ${wtBadge(e)}</div>
       <div style="display:flex;gap:6px">
         <button class="iconbtn" ${i === 0 ? 'disabled' : ''} onclick="moveWoEx(${i},-1)">↑</button>
         <button class="iconbtn" ${i === w.entries.length - 1 ? 'disabled' : ''} onclick="moveWoEx(${i},1)">↓</button>
         <button class="iconbtn" onclick="rmWoEx(${i})">✕</button>
       </div></div>
     <div class="hint">${e.target ? `Ziel: <b>${e.target} Sätze</b> · ` : ''}${lastHint}</div>
-    ${ov && !editing ? `<div style="margin-top:8px"><button class="chip" style="padding:6px 12px;font-size:13px;color:var(--accent)" onclick="fillOverload(${i},${ov.reps},${ov.kg})">💡 Vorschlag: ${ov.reps}×${ov.kg} kg</button></div>` : ''}
+    ${ov && !editing ? `<div style="margin-top:8px"><button class="chip" style="padding:6px 12px;font-size:13px;color:var(--accent)" onclick="fillOverload(${i},${ov.reps},${ov.kg})">💡 Vorschlag: ${ovLabel(ov)}</button></div>` : ''}
     ${e.sets.length ? `<div class="chips" style="margin-top:10px">${pills}</div>` : ''}
     ${inputArea}`;
 }
@@ -895,6 +1003,7 @@ function woExEditPanel(i) {
     <div class="chips">${MUSCLES.map(([m]) =>
       `<button class="chip ${editExMuscles.includes(m) ? 'on' : ''}" onclick="pickWoEditMuscle('${m}')">${m}</button>`).join('')}
     </div>
+    ${wtypeChips(editExWt, 'pickWoEditWt')}
     <div class="row" style="margin-top:14px">
       <button class="btn sm ghost" onclick="cancelWoExEdit()">Abbrechen</button>
       <button class="btn sm" onclick="saveWoExEdit()">Speichern</button>
@@ -910,10 +1019,14 @@ function setEditPanel(i, cardio) {
         <input id="edit-min" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0" value="${esc(editMins)}">
         <button class="btn sm" style="flex:0 0 70px" onclick="saveSetEdit()">✓</button>
         <button class="iconbtn" onclick="cancelSetEdit()">✕</button>
-      </div></div>`;
+      </div>
+      <input id="edit-note" placeholder="Bemerkung – z. B. Stufe 8, 6.000 m" value="${esc(editNote)}" style="margin-top:8px">
+      </div>`;
   }
+  const es = (entriesFor()[i] || { sets: [] }).sets[editSet.si] || {};
+  const kgPh = es.wt === 'db' ? 'kg je Hantel' : es.wt === 'bw' ? 'Zusatz kg' : 'kg';
   return `<div class="card" style="background:var(--fill);margin-top:12px;padding:12px">
-    <div class="hint" style="margin:0 0 8px">Satz ${editSet.si + 1} bearbeiten</div>
+    <div class="hint" style="margin:0 0 8px">Satz ${editSet.si + 1} bearbeiten${es.wt ? ' · ' + wtLabel(es.wt) : ''}</div>
     <div class="chips" style="align-items:center">
       <span class="hint" style="display:inline;margin:0 2px">Satztyp:</span>
       ${[['normal', 'Normal'], ['warmup', 'Aufwärmen'], ['drop', 'Drop']].map(([v, l]) =>
@@ -921,7 +1034,7 @@ function setEditPanel(i, cardio) {
     </div>
     <div class="row" style="margin-top:8px">
       <input id="edit-reps" type="number" inputmode="numeric" placeholder="Wdh." min="1" value="${esc(editReps)}">
-      <input id="edit-kg" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0" value="${esc(editKg)}">
+      <input id="edit-kg" type="number" inputmode="decimal" placeholder="${kgPh}" step="0.5" min="0" value="${esc(editKg)}">
       <input id="edit-rpe" type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" step="1" style="flex:0 0 62px" value="${esc(editRpe)}">
     </div>
     <div class="row" style="margin-top:10px">
@@ -974,6 +1087,7 @@ function rWorkout() {
       <div class="chips">${MUSCLES.map(([m]) =>
         `<button class="chip ${selMuscles.includes(m) ? 'on' : ''}" onclick="pickMuscleWo('${m}')">${m}</button>`).join('')}
       </div>
+      ${wtypeChips(selWtype, 'pickWtypeNew', 'wt-wo')}
       <button class="btn sm ghost" style="margin-top:14px" onclick="addWoEx()">+ Hinzufügen</button>
     </div>
     <button class="btn" style="margin-top:8px" onclick="finishWorkout()">✓ Training beenden</button>
@@ -992,8 +1106,11 @@ function addWoEx() {
   const name = document.getElementById('wo-ex-name').value.trim();
   if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
   if (!selMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
-  S.active.entries.push({ name, muscles: [...selMuscles], sets: [] });
+  const entry = { name, muscles: [...selMuscles], sets: [] };
+  if (selWtype) entry.wt = selWtype;
+  S.active.entries.push(entry);
   woDraft = '';
+  selWtype = ''; wtypeTouched = false;
   save(); render();
 }
 function rmWoEx(i) {
@@ -1016,16 +1133,29 @@ function addSet(i) {
   if (isCardio(e)) {
     const mins = parseFloat(document.getElementById(`min-${i}`).value);
     if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
-    e.sets.push({ mins: Math.round(mins * 10) / 10 });
+    const noteEl = document.getElementById(`note-${i}`);
+    const set = { mins: Math.round(mins * 10) / 10 };
+    const note = noteEl ? noteEl.value.trim() : '';
+    if (note) set.note = note;
+    e.sets.push(set);
     save(); render();
     return; // nach Cardio kein Pausen-Timer
   }
+  const wt = wtOf(e);
   const reps = parseInt(document.getElementById(`reps-${i}`).value, 10);
-  const kg = parseFloat(document.getElementById(`kg-${i}`).value);
+  const kgRaw = document.getElementById(`kg-${i}`).value;
+  const kg = kgRaw === '' && wt === 'bw' ? 0 : parseFloat(kgRaw); // Körpergewicht: leeres Feld = kein Zusatz
   const rpeRaw = parseInt(document.getElementById(`rpe-${i}`).value, 10);
   if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-  if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+  if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
   const set = { reps, weight: kg };
+  if (wt === 'db') set.wt = 'db';
+  else if (wt === 'bw') {
+    const bw = curBodyWeight();
+    if (bw == null) { alert('Trage zuerst im Tab „Gewicht" dein Körpergewicht ein.'); return; }
+    set.wt = 'bw';
+    set.bw = bw;
+  }
   const type = woSetType[i] || 'normal';
   if (type !== 'normal') set.type = type;
   if (!isNaN(rpeRaw) && rpeRaw >= 1 && rpeRaw <= 10) set.rpe = rpeRaw;
@@ -1058,6 +1188,7 @@ function startWoExEdit(i) {
   editExName = e.name;
   editExSets = e.target || 3;
   editExMuscles = [...musclesOf(e)];
+  editExWt = wtOf(e) || guessWtype(e.name); // noch nicht gesetzt -> aus dem Namen vorschlagen
   render();
 }
 function syncWoExEdit() {
@@ -1077,11 +1208,23 @@ function saveWoExEdit() {
   if (!name) { alert('Bitte gib der Übung einen Namen.'); return; }
   if (!editExMuscles.length) { alert('Bitte wähle mindestens eine Muskelgruppe.'); return; }
   const e = S.active.entries[woEditIdx];
+  const wtChanged = wtOf(e) !== editExWt;
   e.name = name;
   e.muscles = [...editExMuscles];
   e.target = Math.max(1, Math.min(10, parseInt(editExSets, 10) || 3));
+  if (editExWt) e.wt = editExWt; else delete e.wt;
   delete e.muscle;
+  // bereits eingetragene Sätze dieser Übung im laufenden Training mit umstellen
+  if (wtChanged) {
+    for (const s of e.sets) {
+      if (s.mins != null) continue;
+      if (editExWt === 'db') { s.wt = 'db'; delete s.bw; }
+      else if (editExWt === 'bw') { const bw = curBodyWeight(); if (bw != null) { s.wt = 'bw'; s.bw = bw; } }
+      else { delete s.wt; delete s.bw; }
+    }
+  }
   woEditIdx = null;
+  if (wtChanged) offerHistoryConvert(name, editExWt);
   save(); render();
 }
 function cancelWoExEdit() {
@@ -1095,10 +1238,60 @@ function overloadFor(name) {
   if (!last) return null;
   const work = last.filter(s => s.mins == null && !isWarmup(s));
   if (!work.length) return null;
-  const top = work.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps)) ? b : a);
-  if (top.weight <= 0) return null; // Eigengewicht: kein sinnvoller Gewichts-Vorschlag
-  if (top.reps >= 12) return { reps: 8, kg: Math.round((top.weight + 2.5) * 10) / 10 };
-  return { reps: top.reps + 1, kg: top.weight };
+  const top = work.reduce((a, b) => {
+    const ea = effKg(a), eb = effKg(b);
+    return (eb > ea || (eb === ea && b.reps > a.reps)) ? b : a;
+  });
+  const wt = top.wt || '';
+  // Vorschlag immer in EINGABE-Einheiten (was du ins Feld tippst)
+  if (!wt && top.weight <= 0) return null; // reines Eigengewicht ohne Typ: kein Gewichts-Vorschlag
+  if (top.reps >= 12) {
+    const step = wt === 'db' ? 2 : 2.5; // Kurzhanteln springen meist in 2-kg-Schritten
+    return { reps: 8, kg: nk(top.weight + step), wt };
+  }
+  return { reps: top.reps + 1, kg: top.weight, wt };
+}
+/* Wird die Gewichtsart einer Übung geändert, kann die bisherige Historie mit
+   umgestellt werden. Beim Körpergewicht wird das Gewicht des jeweiligen
+   Trainingstags genommen, damit alte Einheiten realistisch bleiben. */
+function offerHistoryConvert(name, wt) {
+  const k = name.toLowerCase();
+  let sets = 0, sessions = 0;
+  for (const w of S.workouts) {
+    const e = w.entries.find(e => e.name.toLowerCase() === k);
+    if (!e) continue;
+    const n = e.sets.filter(s => s.mins == null && (s.wt || '') !== wt).length;
+    if (n) { sets += n; sessions++; }
+  }
+  if (!sets) return;
+  if (wt === 'bw' && !S.weights.length) {
+    alert('Bisherige Trainings können nicht auf Körpergewicht umgestellt werden, weil noch kein Körpergewicht erfasst ist.');
+    return;
+  }
+  const ziel = wt === 'db' ? 'Kurzhantel (×2)' : wt === 'bw' ? 'Körpergewicht' : 'Normal';
+  if (!confirm(`„${name}" wurde auf „${ziel}" umgestellt.\n\nSollen die ${sets} bereits gespeicherten Sätze aus ${sessions} früheren Training(s) ebenfalls so gerechnet werden?\n\nDas verändert Volumen und Kurven rückwirkend.`)) return;
+  for (const w of S.workouts) {
+    const e = w.entries.find(e => e.name.toLowerCase() === k);
+    if (!e) continue;
+    if (wt) e.wt = wt; else delete e.wt;
+    for (const s of e.sets) {
+      if (s.mins != null) continue;
+      if (wt === 'db') { s.wt = 'db'; delete s.bw; }
+      else if (wt === 'bw') { s.wt = 'bw'; s.bw = bodyWeightAt(w.date); }
+      else { delete s.wt; delete s.bw; }
+    }
+  }
+  // auch in allen Plänen angleichen, damit es überall konsistent ist
+  for (const p of S.plans) for (const e of p.exercises)
+    if (e.name.toLowerCase() === k) { if (wt) e.wt = wt; else delete e.wt; }
+  save();
+}
+
+/* Beschriftung des Vorschlag-Chips – je nach Gewichtsart */
+function ovLabel(ov) {
+  if (ov.wt === 'db') return `${ov.reps}×${ov.kg} kg je Hantel`;
+  if (ov.wt === 'bw') return ov.kg > 0 ? `${ov.reps} Wdh. + ${ov.kg} kg` : `${ov.reps} Wdh. (Körpergewicht)`;
+  return `${ov.reps}×${ov.kg} kg`;
 }
 function fillOverload(i, reps, kg) {
   const r = document.getElementById(`reps-${i}`); if (r) r.value = reps;
@@ -1124,6 +1317,7 @@ function startSetEdit(ei, si, scope, wid) {
   editRpe = s.rpe != null ? s.rpe : '';
   editMins = s.mins != null ? s.mins : '';
   editSetType = s.type || 'normal';
+  editNote = s.note || '';
   render();
 }
 function syncSetEdit() {
@@ -1131,6 +1325,7 @@ function syncSetEdit() {
   const k = document.getElementById('edit-kg'); if (k) editKg = k.value;
   const p = document.getElementById('edit-rpe'); if (p) editRpe = p.value;
   const m = document.getElementById('edit-min'); if (m) editMins = m.value;
+  const n = document.getElementById('edit-note'); if (n) editNote = n.value;
 }
 function setEditType(t) {
   syncSetEdit();
@@ -1144,12 +1339,14 @@ function saveSetEdit() {
     const mins = parseFloat(editMins);
     if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
     s.mins = Math.round(mins * 10) / 10;
+    const note = (editNote || '').trim();
+    if (note) s.note = note; else delete s.note;
   } else {
     const reps = parseInt(editReps, 10);
-    const kg = parseFloat(editKg);
+    const kg = editKg === '' && s.wt === 'bw' ? 0 : parseFloat(editKg);
     const rpe = parseInt(editRpe, 10);
     if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-    if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    if (isNaN(kg) || kg < 0) { alert(s.wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
     s.reps = reps;
     s.weight = kg;
     if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) s.rpe = rpe; else delete s.rpe;
@@ -1171,7 +1368,7 @@ function repeatLast() {
   S.active = {
     planName: last.planName,
     start: new Date().toISOString(),
-    entries: last.entries.map(e => ({ name: e.name, muscles: musclesOf(e), target: e.target, ss: e.ss, sets: [] }))
+    entries: last.entries.map(e => ({ name: e.name, muscles: musclesOf(e), target: e.target, ss: e.ss, wt: wtOf(e) || undefined, sets: [] }))
   };
   save(); go('workout');
 }
@@ -1307,7 +1504,7 @@ function rHistory() {
       const editing = histEdit === w.id;
       h += `<div style="margin-top:12px;border-top:0.5px solid var(--sep);padding-top:12px">`;
       w.entries.forEach((e, ei) => {
-        h += `<div style="margin-bottom:12px"><b>${esc(e.name)}</b> &nbsp;${badges(e)}
+        h += `<div style="margin-bottom:12px"><b>${esc(e.name)}</b> &nbsp;${badges(e)} ${wtBadge(e)}
           <div class="chips" style="margin-top:7px">
             ${e.sets.map((s, j) => editing
               ? `<span class="setpill"><span onclick="startSetEdit(${ei},${j},'hist','${w.id}')" style="cursor:pointer">${j + 1}. &nbsp;<b>${fmtSet(s)}</b></span><span class="x" onclick="rmHistSet(${ei},${j})">✕</span></span>`
@@ -1319,11 +1516,13 @@ function rHistory() {
           } else if (isCardio(e)) {
             h += `<div class="row" style="margin-top:8px">
               <input id="h-min-${ei}" type="number" inputmode="decimal" placeholder="Minuten" step="0.5" min="0">
-              <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>`;
+              <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>
+              <input id="h-note-${ei}" placeholder="Bemerkung – z. B. Stufe 8, 6.000 m" style="margin-top:8px">`;
           } else {
+            const ph = wtOf(e) === 'db' ? 'kg je Hantel' : wtOf(e) === 'bw' ? 'Zusatz kg' : 'kg';
             h += `<div class="row" style="margin-top:8px">
               <input id="h-reps-${ei}" type="number" inputmode="numeric" placeholder="Wdh." min="1">
-              <input id="h-kg-${ei}" type="number" inputmode="decimal" placeholder="kg" step="0.5" min="0">
+              <input id="h-kg-${ei}" type="number" inputmode="decimal" placeholder="${ph}" step="0.5" min="0">
               <button class="btn sm" style="flex:0 0 92px" onclick="addHistSet(${ei})">+ Satz</button></div>`;
           }
         }
@@ -1373,13 +1572,26 @@ function addHistSet(ei) {
   if (isCardio(e)) {
     const mins = parseFloat(document.getElementById(`h-min-${ei}`).value);
     if (isNaN(mins) || mins <= 0) { alert('Bitte die Zeit in Minuten eingeben.'); return; }
-    e.sets.push({ mins: Math.round(mins * 10) / 10 });
+    const set = { mins: Math.round(mins * 10) / 10 };
+    const noteEl = document.getElementById(`h-note-${ei}`);
+    const note = noteEl ? noteEl.value.trim() : '';
+    if (note) set.note = note;
+    e.sets.push(set);
   } else {
+    const wt = wtOf(e);
     const reps = parseInt(document.getElementById(`h-reps-${ei}`).value, 10);
-    const kg = parseFloat(document.getElementById(`h-kg-${ei}`).value);
+    const kgRaw = document.getElementById(`h-kg-${ei}`).value;
+    const kg = kgRaw === '' && wt === 'bw' ? 0 : parseFloat(kgRaw);
     if (!reps || reps < 1) { alert('Bitte Wiederholungen eingeben.'); return; }
-    if (isNaN(kg) || kg < 0) { alert('Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
-    e.sets.push({ reps, weight: kg });
+    if (isNaN(kg) || kg < 0) { alert(wt === 'bw' ? 'Bitte Zusatzgewicht eingeben (leer für ohne).' : 'Bitte Gewicht eingeben (0 für Eigengewicht).'); return; }
+    const set = { reps, weight: kg };
+    if (wt === 'db') set.wt = 'db';
+    else if (wt === 'bw') {
+      const bw = bodyWeightAt(w.date);
+      if (bw == null) { alert('Trage zuerst im Tab „Gewicht" dein Körpergewicht ein.'); return; }
+      set.wt = 'bw'; set.bw = bw;
+    }
+    e.sets.push(set);
   }
   save(); render();
 }
@@ -1390,7 +1602,7 @@ let selAnaPlan = null;
 let anaMode = 'plans';
 /* Geschätztes 1RM nach Epley, RPE-korrigiert: hat ein Satz RPE, zählt die
    Wiederholungs-Reserve mit (RIR = 10 − RPE) – 8×80 @RPE 8 ist stärker als 8×80 @RPE 10. */
-const e1rmAdj = s => s.weight * (1 + (s.reps + (s.rpe ? 10 - s.rpe : 0)) / 30);
+const e1rmAdj = s => effKg(s) * (1 + (s.reps + (s.rpe ? 10 - s.rpe : 0)) / 30);
 const r1 = v => Math.round(v * 10) / 10;
 
 function lineChart(vals, color) {
@@ -1492,7 +1704,7 @@ function rPlanAnalysis() {
       const e = w.entries.find(e => e.name.toLowerCase() === name.toLowerCase());
       if (!e) continue;
       const strengthSets = e.sets.filter(s => s.mins == null && !isWarmup(s));
-      if (strengthSets.length) pts.push({ est: Math.max(...strengthSets.map(e1rmAdj)), top: Math.max(...strengthSets.map(s => s.weight)) });
+      if (strengthSets.length) pts.push({ est: Math.max(...strengthSets.map(e1rmAdj)), top: Math.max(...strengthSets.map(effKg)) });
     }
     if (!pts.length) continue; // reine Cardio-Übungen haben keine Kraftkurve
     const first = pts[0].est, last = pts[pts.length - 1].est;
@@ -1541,7 +1753,7 @@ function rExerciseAnalysis() {
     const rpes = ss.filter(s => s.rpe);
     pts.push({
       est: Math.max(...ss.map(e1rmAdj)),
-      top: Math.max(...ss.map(s => s.weight)),
+      top: Math.max(...ss.map(effKg)),
       rpe: rpes.length ? rpes.reduce((a, b) => a + b.rpe, 0) / rpes.length : null
     });
   }
@@ -1627,7 +1839,7 @@ function rMuscleStats() {
     if (new Date(w.date).getTime() < cutoff) continue;
     for (const e of w.entries) {
       const workSets = e.sets.filter(s => !isWarmup(s)); // Aufwärmsätze nicht mitzählen
-      const vol = workSets.reduce((t, s) => t + (s.mins != null ? 0 : s.reps * s.weight), 0);
+      const vol = workSets.reduce((t, s) => t + (s.mins != null ? 0 : s.reps * effKg(s)), 0);
       for (const m of musclesOf(e)) {
         if (!agg.has(m)) agg.set(m, { sets: 0, vol: 0 });
         const a = agg.get(m);
