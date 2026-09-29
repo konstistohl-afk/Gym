@@ -385,6 +385,7 @@ let openOpts = null;         // Übung, deren Zusatz-Optionen (Satztyp, Zusatzge
 let showAddWo = false;       // Formular „Übung hinzufügen" im Training offen?
 let showAddPlan = false;     // Formular „Neue Übung" im Plan-Editor offen?
 let showSettings = false;    // Einstellungen auf der Startseite offen?
+let showImportPlan = false;  // Eingabefeld für geteilten Plan offen?
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -692,14 +693,29 @@ function rPlans() {
         <div class="sub">${p.exercises.length} Übungen · tippen zum Bearbeiten</div>
       </div>
       <div style="display:flex;gap:6px">
+        <button class="iconbtn" title="Teilen" onclick="sharePlan('${p.id}')">⤴</button>
         <button class="iconbtn" title="Duplizieren" onclick="dupPlan('${p.id}')">⧉</button>
         <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
       </div>
     </div></div>`;
   }
   h += `<button class="btn" style="margin-top:10px" onclick="newPlan()">+ Neuer Plan</button>`;
+
+  // Plan von jemand anderem übernehmen – fügt hinzu, überschreibt nie
+  if (!showImportPlan) {
+    h += `<button class="addbtn" style="margin-top:12px" onclick="toggleImportPlan()">⤵ Geteilten Plan empfangen</button>`;
+  } else {
+    h += `<div class="card" style="margin-top:12px">
+      <div class="listitem" style="margin-bottom:10px"><b style="font-size:15px">Geteilten Plan empfangen</b>
+        <button class="iconbtn" onclick="toggleImportPlan()">✕</button></div>
+      <div class="hint" style="margin:0 2px 10px">Füge hier den Code ein, den du bekommen hast (beginnt mit <b>GYMPLAN1:</b>). Der Plan wird <b>hinzugefügt</b> – deine eigenen Pläne und Trainings bleiben unangetastet.</div>
+      <textarea id="plan-code" rows="4" placeholder="GYMPLAN1:…" style="width:100%;background:var(--fill);border:none;color:var(--text);font-size:14px;font-family:inherit;border-radius:11px;padding:13px 14px;outline:none;resize:vertical"></textarea>
+      <button class="btn sm" style="margin-top:12px" onclick="importPlanCode()">Plan hinzufügen</button>
+    </div>`;
+  }
   return h;
 }
+function toggleImportPlan() { showImportPlan = !showImportPlan; render(); }
 
 function newPlan() {
   editPlan = { id: uid(), name: '', exercises: [], isNew: true };
@@ -721,6 +737,131 @@ function delPlan(id) {
     save(); render();
   }
 }
+/* ================= Plan teilen & empfangen =================
+   Kompakter Code zum Verschicken (WhatsApp o. Ä.). Beim Empfänger wird der Plan
+   HINZUGEFÜGT – vorhandene Pläne und Trainings bleiben unberührt. */
+const SHARE_PREFIX = 'GYMPLAN1:';
+
+function b64enc(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function b64dec(b64) {
+  const bin = atob(b64);
+  return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+}
+/* Plan -> kompaktes Array-Format: [Name, [Muskel-Nummern], Sätze, Supersatz, Gewichtsart] */
+function encodePlan(p) {
+  const data = {
+    v: 1,
+    n: p.name,
+    e: p.exercises.map(e => [
+      e.name,
+      musclesOf(e).map(m => MUSCLES.findIndex(x => x[0] === m)).filter(i => i >= 0),
+      e.target || 3,
+      e.ss ? 1 : 0,
+      wtOf(e)
+    ])
+  };
+  return SHARE_PREFIX + b64enc(JSON.stringify(data));
+}
+/* Streng validiert – aus fremdem Text werden nur bekannte Felder übernommen */
+function decodePlan(text) {
+  const s = String(text || '');
+  const at = s.indexOf(SHARE_PREFIX);
+  if (at < 0) return null;
+  const raw = s.slice(at + SHARE_PREFIX.length).trim().split(/\s/)[0];
+  if (!raw) return null;
+  let d;
+  try { d = JSON.parse(b64dec(raw)); } catch (e) { return null; }
+  if (!d || d.v !== 1 || typeof d.n !== 'string' || !Array.isArray(d.e)) return null;
+  if (!d.e.length || d.e.length > 60) return null;
+  const exercises = [];
+  for (const row of d.e) {
+    if (!Array.isArray(row) || typeof row[0] !== 'string') continue;
+    const name = row[0].trim().slice(0, 80);
+    if (!name) continue;
+    const muscles = (Array.isArray(row[1]) ? row[1] : [])
+      .filter(i => Number.isInteger(i) && i >= 0 && i < MUSCLES.length)
+      .map(i => MUSCLES[i][0]);
+    const ex = {
+      name,
+      muscles: muscles.length ? muscles : ['Brust'],
+      target: Math.max(1, Math.min(10, parseInt(row[2], 10) || 3))
+    };
+    if (row[3] === 1) ex.ss = true;
+    if (row[4] === 'db' || row[4] === 'bw') ex.wt = row[4];
+    exercises.push(ex);
+  }
+  if (!exercises.length) return null;
+  return { name: d.n.trim().slice(0, 60) || 'Geteilter Plan', exercises };
+}
+function sharePlan(id) {
+  const p = S.plans.find(p => p.id === id);
+  if (!p) return;
+  if (!p.exercises.length) { alert('Dieser Plan hat noch keine Übungen.'); return; }
+  const code = encodePlan(p);
+  const text = `Trainingsplan „${p.name}" (${p.exercises.length} Übungen)\n\n`
+    + `So fügst du ihn hinzu: Trainingstracker öffnen → Tab „Pläne" → „⤵ Geteilten Plan empfangen" → diesen Code einfügen:\n\n${code}`;
+  if (navigator.share) {
+    navigator.share({ text }).catch(() => copyShare(text));
+  } else {
+    copyShare(text);
+  }
+}
+function copyShare(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => alert('Code kopiert ✓\n\nJetzt in WhatsApp o. Ä. einfügen und abschicken.'))
+      .catch(() => showShareBox(text));
+  } else {
+    showShareBox(text);
+  }
+}
+/* Notfall-Anzeige: Text zum manuellen Markieren und Kopieren */
+function showShareBox(text) {
+  const v = document.getElementById('view');
+  const box = document.createElement('div');
+  box.className = 'card';
+  box.style.marginTop = '12px';
+  box.innerHTML = `<b style="font-size:15px">Zum Kopieren markieren</b>
+    <div class="hint" style="margin:6px 0 8px">Text lange gedrückt halten → „Alles auswählen" → „Kopieren".</div>`;
+  const ta = document.createElement('textarea');
+  ta.readOnly = true;
+  ta.rows = 6;
+  ta.value = text;
+  ta.style.cssText = 'width:100%;background:var(--fill);border:none;color:var(--text);font-size:13px;font-family:inherit;border-radius:11px;padding:13px 14px;outline:none';
+  box.appendChild(ta);
+  v.appendChild(box);
+  ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  ta.select();
+}
+function importPlanCode() {
+  const el = document.getElementById('plan-code');
+  const parsed = decodePlan(el ? el.value : '');
+  if (!parsed) {
+    alert('Das ist kein gültiger Plan-Code.\n\nAchte darauf, den ganzen Text ab „GYMPLAN1:" zu kopieren.');
+    return;
+  }
+  const liste = parsed.exercises.slice(0, 12).map(e => '• ' + e.name).join('\n')
+    + (parsed.exercises.length > 12 ? `\n… und ${parsed.exercises.length - 12} weitere` : '');
+  if (!confirm(`Plan „${parsed.name}" mit ${parsed.exercises.length} Übungen hinzufügen?\n\n${liste}\n\nDeine eigenen Pläne und Trainings bleiben unverändert.`)) return;
+  // Bei gleichem Namen durchnummerieren, damit nichts überschrieben wird
+  let name = parsed.name;
+  if (S.plans.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    const base = name + ' (geteilt)';
+    name = base;
+    let n = 2;
+    while (S.plans.some(p => p.name.toLowerCase() === name.toLowerCase())) name = base + ' ' + n++;
+  }
+  S.plans.push({ id: uid(), name, exercises: parsed.exercises });
+  showImportPlan = false;
+  save(); render();
+  alert(`Plan „${name}" hinzugefügt ✓`);
+}
+
 function dupPlan(id) {
   const p = S.plans.find(p => p.id === id);
   if (!p) return;
