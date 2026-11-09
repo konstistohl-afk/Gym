@@ -152,8 +152,8 @@
   }
   .seg button {
     flex: 1; border: none; background: none; color: var(--text);
-    font-size: 14px; font-weight: 600; font-family: inherit;
-    padding: 8px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    padding: 8px 4px; border-radius: 8px; cursor: pointer; white-space: nowrap;
   }
   .seg button.on { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
 
@@ -344,6 +344,7 @@ let showSettings = false;    // Einstellungen auf der Startseite offen?
 let showImportPlan = false;  // Eingabefeld für geteilten Plan offen?
 let closedFolders = [];      // zugeklappte Plan-Ordner
 let gymSel = null;           // im Gym gerade ausgewähltes Gerät
+let folderFor = null;        // Plan, für den gerade ein Ordner gewählt wird
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -459,6 +460,7 @@ function go(tab) {
   woEditIdx = null;
   selWtype = ''; wtypeTouched = false;
   gymSel = null;
+  folderFor = null;
   render();
   scrollTo(0, 0);
 }
@@ -987,12 +989,25 @@ function rPlans() {
           <div class="sub">${p.exercises.length} Übungen · tippen zum Bearbeiten</div>
         </div>
         <div style="display:flex;gap:6px">
+          <button class="iconbtn" title="Ordner" onclick="openFolderPick('${p.id}')">🗂</button>
           <button class="iconbtn" title="Teilen" onclick="sharePlan('${p.id}')">⤴</button>
           <button class="iconbtn" title="Duplizieren" onclick="dupPlan('${p.id}')">⧉</button>
           <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
         </div>
-      </div></div>`;
+      </div>
+      ${folderFor === p.id ? `<div style="border-top:0.5px solid var(--sep);margin-top:12px;padding-top:12px">
+        <div class="hint" style="margin:0 2px 8px">In welchen Ordner soll „${esc(p.name)}"?</div>
+        <div class="chips">
+          ${allFolders().map((f, fi) => `<button class="chip ${(p.folder || '') === f ? 'on' : ''}" onclick="setPlanFolder('${p.id}',${fi})">${esc(f)}</button>`).join('')}
+          <button class="chip" onclick="setPlanFolder('${p.id}',-2)">+ Neuer Ordner</button>
+          ${p.folder ? `<button class="chip" onclick="setPlanFolder('${p.id}',-1)">Kein Ordner</button>` : ''}
+        </div>
+      </div>` : ''}
+      </div>`;
     }
+  }
+  if (!allFolders().length && S.plans.length > 1) {
+    h += `<div class="hint" style="margin:10px 4px 0">Tipp: Mit <b>🗂</b> sortierst du Pläne in Ordner – z. B. „Maximalkraft" oder „Schnellkraft".</div>`;
   }
   h += `<button class="btn" style="margin-top:10px" onclick="newPlan()">+ Neuer Plan</button>`;
 
@@ -1192,6 +1207,26 @@ function pickFolder(i) {
   syncPlanName();
   editPlan.folder = i < 0 ? '' : (allFolders()[i] || '');
   render();
+}
+/* Ordner direkt aus der Plan-Liste zuweisen – ohne den Editor zu öffnen */
+function openFolderPick(id) {
+  folderFor = folderFor === id ? null : id;
+  render();
+}
+function setPlanFolder(id, fi) {
+  const p = S.plans.find(p => p.id === id);
+  if (!p) return;
+  if (fi === -2) {
+    const name = (prompt('Name des neuen Ordners:', '') || '').trim();
+    if (!name) return;
+    p.folder = name;
+  } else if (fi === -1) {
+    delete p.folder;
+  } else {
+    p.folder = allFolders()[fi];
+  }
+  folderFor = null;
+  save(); render();
 }
 function toggleFolder(name) {
   const i = closedFolders.indexOf(name);
@@ -2292,7 +2327,7 @@ function addHistSet(ei) {
 /* ================= Analyse ================= */
 let anaPlans = [];
 let selAnaPlan = null;
-let anaMode = 'plans';
+let anaMode = 'body';
 /* Geschätztes 1RM nach Epley, RPE-korrigiert: hat ein Satz RPE, zählt die
    Wiederholungs-Reserve mit (RIR = 10 − RPE) – 8×80 @RPE 8 ist stärker als 8×80 @RPE 10. */
 const e1rmAdj = s => effKg(s) * (1 + (s.reps + (s.rpe ? 10 - s.rpe : 0)) / 30);
@@ -2317,17 +2352,256 @@ function rAnalysis() {
   let h = `<div class="topbar"><button class="back" onclick="go('more')">‹ Mehr</button></div>
     <h1>Analyse</h1><div class="sub">Deine Entwicklung im Blick</div><div style="height:16px"></div>
     <div class="seg">
+      <button class="${anaMode === 'body' ? 'on' : ''}" onclick="setAnaMode('body')">Körper</button>
       <button class="${anaMode === 'plans' ? 'on' : ''}" onclick="setAnaMode('plans')">Pläne</button>
       <button class="${anaMode === 'exercises' ? 'on' : ''}" onclick="setAnaMode('exercises')">Übungen</button>
       <button class="${anaMode === 'muscles' ? 'on' : ''}" onclick="setAnaMode('muscles')">Muskeln</button>
       <button class="${anaMode === 'weeks' ? 'on' : ''}" onclick="setAnaMode('weeks')">Wochen</button>
     </div>`;
-  return h + (anaMode === 'muscles' ? rMuscleStats()
+  return h + (anaMode === 'body' ? rBodyOverview()
+    : anaMode === 'muscles' ? rMuscleStats()
     : anaMode === 'exercises' ? rExerciseAnalysis()
     : anaMode === 'weeks' ? rWeekStats()
     : rPlanAnalysis());
 }
 function setAnaMode(m) { anaMode = m; render(); }
+
+/* ===================== Ganzkörper-Übersicht =====================
+   Zeigt auf einen Blick, wie gleichmäßig der ganze Körper belastet wird
+   und wie sich die Gesamtkraft entwickelt. */
+
+/* Arbeitssätze je Muskelgruppe pro Woche (Schnitt über die letzten 28 Tage) */
+function weeklySetsByMuscle(tage = 28) {
+  const cutoff = Date.now() - tage * 864e5;
+  const map = new Map();
+  for (const w of S.workouts) {
+    if (new Date(w.date).getTime() < cutoff) continue;
+    for (const e of w.entries) {
+      const n = e.sets.filter(s => !isWarmup(s) && s.mins == null).length;
+      if (!n) continue;
+      for (const m of musclesOf(e)) map.set(m, (map.get(m) || 0) + n);
+    }
+  }
+  const wochen = tage / 7;
+  const out = new Map();
+  for (const [m, n] of map) out.set(m, n / wochen);
+  return out;
+}
+/* Deckungsgrad 0–1: wie nah ist die Muskelgruppe am Richtwert von 10 Sätzen/Woche? */
+function muscleLoad(m, weekly) {
+  const ZIEL = 10;
+  return Math.max(0, Math.min(1, (weekly.get(m) || 0) / ZIEL));
+}
+/* Körper-Silhouette, Muskelgruppen nach Belastung eingefärbt */
+function bodyMap(weekly) {
+  const fill = m => {
+    const l = muscleLoad(m, weekly);
+    return `fill="${mColor(m)}" opacity="${(0.1 + l * 0.9).toFixed(2)}"`;
+  };
+  const neutral = `fill="var(--fill2)"`;
+  // Grundfigur, auf die die Muskelgruppen gelegt werden
+  const koerper = `<g fill="var(--fill2)">
+    <circle cx="50" cy="15" r="11"/>
+    <rect x="45" y="24" width="10" height="9" rx="2"/>
+    <path d="M30 35 q20 -7 40 0 l-3 42 q-17 4 -34 0 z"/>
+    <path d="M30 35 q-8 5 -8 15 l-3 33 q4 2 9 0 l3 -31 q1 -9 5 -12 z"/>
+    <path d="M70 35 q8 5 8 15 l3 33 q-4 2 -9 0 l-3 -31 q-1 -9 -5 -12 z"/>
+    <path d="M36 76 q6 3 12 2 l-1 62 q-5 2 -10 0 z"/>
+    <path d="M64 76 q-6 3 -12 2 l1 62 q5 2 10 0 z"/>
+    <path d="M37 136 q5 2 10 0 l-1 38 q-4 2 -8 0 z"/>
+    <path d="M63 136 q-5 2 -10 0 l1 38 q4 2 8 0 z"/>
+  </g>`;
+  // Vorderansicht
+  const vorn = `<g>
+    ${koerper}
+    <path d="M26 36 q10 -8 20 -4 l0 12 q-12 2 -20 -8 z" ${fill('Schultern')}/>
+    <path d="M74 36 q-10 -8 -20 -4 l0 12 q12 2 20 -8 z" ${fill('Schultern')}/>
+    <path d="M34 44 q8 -4 15 -2 l0 18 q-10 1 -15 -6 z" ${fill('Brust')}/>
+    <path d="M66 44 q-8 -4 -15 -2 l0 18 q10 1 15 -6 z" ${fill('Brust')}/>
+    <path d="M24 48 q6 2 7 10 l-1 16 q-7 -2 -8 -12 z" ${fill('Bizeps')}/>
+    <path d="M76 48 q-6 2 -7 10 l1 16 q7 -2 8 -12 z" ${fill('Bizeps')}/>
+    <path d="M22 76 l7 1 l-2 22 l-7 -2 z" ${neutral}/>
+    <path d="M78 76 l-7 1 l2 22 l7 -2 z" ${neutral}/>
+    <path d="M38 64 l24 0 l-2 28 l-20 0 z" ${fill('Bauch')}/>
+    <path d="M37 94 l11 0 l-1 44 l-11 -2 z" ${fill('Beine')}/>
+    <path d="M63 94 l-11 0 l1 44 l11 -2 z" ${fill('Beine')}/>
+    <path d="M38 142 l9 1 l-1 30 l-8 -1 z" ${fill('Waden')}/>
+    <path d="M62 142 l-9 1 l1 30 l8 -1 z" ${fill('Waden')}/>
+    <text x="50" y="190" text-anchor="middle" font-size="9" fill="var(--muted)">vorne</text>
+  </g>`;
+  // Rückansicht
+  const hinten = `<g transform="translate(104,0)">
+    ${koerper}
+    <path d="M26 36 q10 -8 20 -4 l0 12 q-12 2 -20 -8 z" ${fill('Schultern')}/>
+    <path d="M74 36 q-10 -8 -20 -4 l0 12 q12 2 20 -8 z" ${fill('Schultern')}/>
+    <path d="M34 40 l32 0 l-4 34 l-24 0 z" ${fill('Rücken')}/>
+    <path d="M24 48 q6 2 7 10 l-1 16 q-7 -2 -8 -12 z" ${fill('Trizeps')}/>
+    <path d="M76 48 q-6 2 -7 10 l1 16 q7 -2 8 -12 z" ${fill('Trizeps')}/>
+    <path d="M22 76 l7 1 l-2 22 l-7 -2 z" ${neutral}/>
+    <path d="M78 76 l-7 1 l2 22 l7 -2 z" ${neutral}/>
+    <path d="M37 76 l26 0 l2 18 l-30 0 z" ${fill('Po')}/>
+    <path d="M37 96 l11 0 l-1 42 l-11 -2 z" ${fill('Beine')}/>
+    <path d="M63 96 l-11 0 l1 42 l11 -2 z" ${fill('Beine')}/>
+    <path d="M38 142 l9 1 l-1 30 l-8 -1 z" ${fill('Waden')}/>
+    <path d="M62 142 l-9 1 l1 30 l8 -1 z" ${fill('Waden')}/>
+    <text x="50" y="190" text-anchor="middle" font-size="9" fill="var(--muted)">hinten</text>
+  </g>`;
+  return `<svg viewBox="0 0 204 196" style="width:100%;max-width:330px;display:block;margin:0 auto">${vorn}${hinten}</svg>`;
+}
+/* Entwicklung der Gesamtkraft: bestes geschätztes 1RM je Hauptübung, aufsummiert */
+function strengthTotal() {
+  const KERN = ['kniebeuge', 'bankdrücken', 'kreuzheben'];
+  const best = new Map();           // Übung -> bestes e1RM insgesamt
+  const verlauf = [];               // Monatswerte
+  for (const w of [...S.workouts].sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const e of w.entries) {
+      const ss = e.sets.filter(s => s.mins == null && !isWarmup(s));
+      if (!ss.length) continue;
+      const k = e.name.toLowerCase();
+      const v = Math.max(...ss.map(e1rmAdj));
+      if (!best.has(k) || v > best.get(k).v) best.set(k, { v, name: e.name });
+    }
+  }
+  if (!best.size) return null;
+  // Kernübungen bevorzugen, sonst die drei stärksten
+  let picks = KERN.map(k => {
+    const hit = [...best.entries()].filter(([n]) => n.includes(k)).sort((a, b) => b[1].v - a[1].v)[0];
+    return hit ? { key: hit[0], name: hit[1].name, v: hit[1].v } : null;
+  }).filter(Boolean);
+  const klassisch = picks.length === 3;
+  if (picks.length < 3) {
+    const rest = [...best.entries()].filter(([n]) => !picks.some(p => p.key === n))
+      .sort((a, b) => b[1].v - a[1].v).slice(0, 3 - picks.length)
+      .map(([key, o]) => ({ key, name: o.name, v: o.v }));
+    picks = picks.concat(rest);
+  }
+  // Monatsverlauf: jeweils Bestwert bis zu diesem Monat
+  const laufend = new Map();
+  const monate = new Map();
+  for (const w of [...S.workouts].sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const e of w.entries) {
+      const ss = e.sets.filter(s => s.mins == null && !isWarmup(s));
+      if (!ss.length) continue;
+      const k = e.name.toLowerCase();
+      if (!picks.some(p => p.key === k)) continue;
+      const v = Math.max(...ss.map(e1rmAdj));
+      if (!laufend.has(k) || v > laufend.get(k)) laufend.set(k, v);
+    }
+    const mk = w.date.slice(0, 7);
+    monate.set(mk, [...laufend.values()].reduce((a, b) => a + b, 0));
+  }
+  for (const [, v] of monate) verlauf.push(v);
+  return { picks, klassisch, total: picks.reduce((a, p) => a + p.v, 0), verlauf };
+}
+/* Verteilung der Sätze auf Druck/Zug und Ober-/Unterkörper */
+function balanceStats(weekly) {
+  const sum = list => list.reduce((t, m) => t + (weekly.get(m) || 0), 0);
+  return {
+    push: sum(['Brust', 'Schultern', 'Trizeps']),
+    pull: sum(['Rücken', 'Bizeps']),
+    oben: sum(['Brust', 'Rücken', 'Schultern', 'Bizeps', 'Trizeps']),
+    unten: sum(['Beine', 'Po', 'Waden'])
+  };
+}
+function balanceBar(aLabel, aVal, bLabel, bVal, hinweis) {
+  const ges = aVal + bVal;
+  if (!ges) return '';
+  const pa = Math.round(aVal / ges * 100);
+  return `<div style="margin-top:14px">
+    <div class="listitem" style="margin-bottom:6px">
+      <b style="font-size:14px">${aLabel} ${pa}%</b>
+      <b style="font-size:14px">${100 - pa}% ${bLabel}</b>
+    </div>
+    <div style="display:flex;height:12px;border-radius:6px;overflow:hidden">
+      <div style="width:${pa}%;background:var(--accent)"></div>
+      <div style="width:${100 - pa}%;background:var(--orange)"></div>
+    </div>
+    <div class="hint" style="margin-top:5px">${hinweis}</div>
+  </div>`;
+}
+
+function rBodyOverview() {
+  if (!S.workouts.length) {
+    return `<div class="empty"><span class="big">🧍</span>Noch keine Trainings.<br>Sobald du trainierst, siehst du hier,<br>wie sich dein ganzer Körper entwickelt.</div>`;
+  }
+  const weekly = weeklySetsByMuscle();
+  const st = strengthTotal();
+  const bal = balanceStats(weekly);
+  const bw = curBodyWeight();
+
+  // Kopfzahlen
+  const gesamtSätze = [...weekly.values()].reduce((a, b) => a + b, 0);
+  const abgedeckt = MUSCLES.map(x => x[0]).filter(m => m !== 'Cardio' && (weekly.get(m) || 0) >= 10).length;
+  let h = `<div class="stats" style="margin:0 0 14px">
+    <div class="stat"><div class="v">${st ? Math.round(st.total) : '–'}</div><div class="l">kg Kraft-Index</div></div>
+    <div class="stat"><div class="v">${r1(gesamtSätze)}</div><div class="l">Sätze/Woche</div></div>
+    <div class="stat"><div class="v">${abgedeckt}/9</div><div class="l">Muskeln im Ziel</div></div>
+  </div>`;
+
+  // Körperkarte
+  h += `<div class="card">
+    <b style="font-size:16px">Belastungskarte</b>
+    <div class="hint" style="margin:4px 0 10px">Je kräftiger die Farbe, desto näher ist die Muskelgruppe am Richtwert von
+      <b>10 Arbeitssätzen pro Woche</b> (Schnitt der letzten 4 Wochen). Blasse Bereiche kommen zu kurz.</div>
+    ${bodyMap(weekly)}
+    <div class="chips" style="margin-top:10px">
+      ${MUSCLES.filter(x => x[0] !== 'Cardio').map(([m]) => {
+        const v = weekly.get(m) || 0;
+        return `<span class="setpill" style="font-size:12px"><span style="width:9px;height:9px;border-radius:3px;background:${mColor(m)};opacity:${(0.1 + muscleLoad(m, weekly) * 0.9).toFixed(2)};display:inline-block"></span>
+          &nbsp;${esc(m)} <b>${r1(v)}</b></span>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  // Kraftentwicklung
+  if (st) {
+    const rel = bw ? r1(st.total / bw) : null;
+    h += `<div class="card">
+      <b style="font-size:16px">Gesamtkraft</b>
+      <div class="hint" style="margin:4px 0 10px">${st.klassisch
+        ? 'Summe deiner geschätzten Maximalgewichte aus Kniebeuge, Bankdrücken und Kreuzheben – im Kraftsport der übliche Gesamtwert.'
+        : 'Summe der geschätzten Maximalgewichte deiner drei stärksten Übungen.'}</div>
+      ${st.picks.map(p => `<div class="listitem" style="padding:5px 0">
+        <span style="font-size:14px">${esc(p.name)}</span><b style="font-size:15px">${r1(p.v)} kg</b></div>`).join('')}
+      <div class="listitem" style="padding:10px 0 0;border-top:0.5px solid var(--sep);margin-top:8px">
+        <b style="font-size:15px">Gesamt</b>
+        <b style="font-size:20px;color:var(--accent)">${Math.round(st.total)} kg</b></div>
+      ${rel ? `<div class="listitem" style="padding:6px 0"><span class="hint" style="margin:0">Im Verhältnis zu ${bw} kg Körpergewicht</span>
+        <b style="font-size:15px">${rel}×</b></div>` : ''}
+      ${st.verlauf.length >= 2 ? `<div style="margin-top:10px">
+        <div class="hint" style="margin-bottom:4px">Entwicklung über die Monate</div>
+        ${lineChart(st.verlauf.map(v => Math.round(v)), 'var(--accent)')}</div>` : ''}
+    </div>`;
+  }
+
+  // Balance
+  const pr = bal.pull ? bal.push / bal.pull : 0;
+  const pushHinweis = !bal.push || !bal.pull
+    ? 'Für den Vergleich brauchst du sowohl Druck- als auch Zugübungen.'
+    : pr > 1.3 ? 'Deutlich mehr Druck als Zug. Mehr Rudern und Klimmzüge beugen Schulterproblemen vor.'
+    : pr < 0.7 ? 'Deutlich mehr Zug als Druck – für die Schultern unproblematisch, Brust und Trizeps bleiben aber zurück.'
+    : 'Gut ausgeglichen. Ein Verhältnis um 1:1 gilt für die Schultergesundheit als günstig.';
+  const ou = bal.unten ? bal.oben / bal.unten : 0;
+  const ouHinweis = !bal.unten ? 'Du trainierst aktuell keine Beine – das ist die größte Lücke im Plan.'
+    : ou > 2.5 ? 'Der Oberkörper bekommt deutlich mehr ab. Mehr Beinvolumen würde das Gesamtbild runder machen.'
+    : ou < 0.6 ? 'Sehr beinlastig. Für den Oberkörper wäre mehr Volumen sinnvoll.'
+    : 'Ober- und Unterkörper sind ordentlich verteilt.';
+  h += `<div class="card">
+    <b style="font-size:16px">Balance</b>
+    <div class="hint" style="margin:4px 0 0">Verteilung deiner Arbeitssätze der letzten 4 Wochen.</div>
+    ${balanceBar('Drücken', bal.push, 'Ziehen', bal.pull, pushHinweis)}
+    ${balanceBar('Oberkörper', bal.oben, 'Beine', bal.unten, ouHinweis)}
+  </div>`;
+
+  // Vernachlässigte Muskelgruppen
+  const schwach = MUSCLES.map(x => x[0]).filter(m => m !== 'Cardio' && (weekly.get(m) || 0) < 5);
+  if (schwach.length) {
+    h += `<div class="card"><b style="font-size:15px">Kommt zu kurz</b>
+      <div class="hint" style="margin:5px 0 10px">Unter 5 Arbeitssätzen pro Woche – hier passiert kaum Aufbau.</div>
+      <div class="chips">${schwach.map(badge).join(' ')}</div></div>`;
+  }
+  return h;
+}
 
 function rPlanAnalysis() {
   const names = [];
