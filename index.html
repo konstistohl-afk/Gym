@@ -237,6 +237,14 @@
   .opts .chip { padding: 6px 11px; font-size: 13px; background: var(--card); }
   .opts .chip.on { background: var(--accent); color: #fff; }
 
+  /* ---- Ordner-Überschrift in der Plan-Liste ---- */
+  .folderhead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 6px 6px; cursor: pointer;
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+
   /* ---- Aufklapp-Karte (Formulare) ---- */
   .addbtn {
     display: flex; align-items: center; justify-content: center; gap: 7px;
@@ -280,17 +288,13 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
     Verlauf
   </button>
-  <button class="navbtn" data-tab="analysis" onclick="go('analysis')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 16l5-5 4 3 7-8"/><path d="M16 6h4v4"/></svg>
-    Analyse
+  <button class="navbtn" data-tab="gym" onclick="go('gym')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 8v8M17.5 8v8M3.5 10v4M20.5 10v4M6.5 12h11"/></svg>
+    Gym
   </button>
-  <button class="navbtn" data-tab="orm" onclick="go('orm')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 0 1-10 0V4z"/><path d="M7 6H4a3 3 0 0 0 3 5M17 6h3a3 3 0 0 1-3 5"/></svg>
-    1RM
-  </button>
-  <button class="navbtn" data-tab="weight" onclick="go('weight')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 8a4 4 0 0 1 8 0l-1.5 3h-5L8 8z"/></svg>
-    Gewicht
+  <button class="navbtn" data-tab="more" onclick="go('more')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+    Mehr
   </button>
 </nav>
 
@@ -306,57 +310,6 @@ const MUSCLES = [
 ];
 const mColor = m => (MUSCLES.find(x => x[0] === m) || [0, '#007aff'])[1];
 
-/* Deine Pläne aus der Numbers-Tabelle „Kraftplan Werte" */
-const DEFAULT_PLANS = [
-  { name: 'Kraft + Schnelligkeit A', ex: [
-    ['Rückenstrecker', ['Rücken'], 3], ['Bauchlage MB Wurf', ['Rücken', 'Schultern'], 3],
-    ['Kniebeuge', ['Beine', 'Po'], 3], ['Box Jumps', ['Beine'], 3],
-    ['Bankdrücken', ['Brust', 'Trizeps'], 3], ['Liegestütz explosiv', ['Brust', 'Trizeps'], 3],
-    ['Bridge', ['Po'], 3], ['Kettlebell Swing', ['Po', 'Rücken'], 3]] },
-  { name: 'Kraft + Schnelligkeit B', ex: [
-    ['Rudern', ['Rücken', 'Bizeps'], 3], ['Schrägbankdrücken', ['Brust', 'Schultern'], 3],
-    ['Kreuzheben', ['Rücken', 'Beine', 'Po'], 3], ['Beinpresse exzentrisch', ['Beine'], 3],
-    ['Klimmzüge', ['Rücken', 'Bizeps'], 3], ['Dips', ['Trizeps', 'Brust'], 3],
-    ['Half Kneeling Landmine', ['Bauch', 'Schultern'], 3], ['Bizeps/Trizeps', ['Bizeps', 'Trizeps'], 3],
-    ['Kurzhantel Bankdrücken explosiv', ['Brust'], 3]] },
-  { name: 'Kraftplan A', ex: [
-    ['Lat Zug', ['Rücken', 'Bizeps'], 3], ['Butterfly', ['Brust'], 3],
-    ['Kniebeuge', ['Beine', 'Po'], 3], ['Ausfallschritte', ['Beine', 'Po'], 3],
-    ['Bankdrücken', ['Brust', 'Trizeps'], 3], ['Bridge', ['Po'], 3]] },
-  { name: 'Kraftplan B', ex: [
-    ['Rudern', ['Rücken', 'Bizeps'], 3], ['Schrägbankdrücken', ['Brust', 'Schultern'], 3],
-    ['Split Squat', ['Beine', 'Po'], 3], ['Wadenheben', ['Waden'], 3],
-    ['Kreuzheben', ['Rücken', 'Beine', 'Po'], 3], ['Dips', ['Trizeps', 'Brust'], 3]] },
-  { name: 'Kraftplan C', ex: [
-    ['Klimmzug', ['Rücken', 'Bizeps'], 3], ['Reverse Flys', ['Schultern', 'Rücken'], 3],
-    ['Standwaage', ['Rücken', 'Beine'], 3], ['Front Kniebeuge', ['Beine'], 3],
-    ['Pull Over', ['Brust', 'Rücken'], 3], ['Rückenstrecker', ['Rücken'], 3]] },
-  { name: 'Max SK A', ex: [
-    ['Rückenstrecker schräg', ['Rücken'], 3], ['Bauchlage MB Wurf Überkopf', ['Rücken', 'Schultern'], 3],
-    ['Kniebeuge', ['Beine', 'Po'], 3], ['Box Jumps', ['Beine'], 3],
-    ['Bankdrücken', ['Brust', 'Trizeps'], 3], ['Liegestütz explosiv', ['Brust', 'Trizeps'], 3],
-    ['Bridge', ['Po'], 3], ['Kettlebell Swing', ['Po', 'Rücken'], 3]] },
-  { name: 'Max SK B', ex: [
-    ['Rudern', ['Rücken', 'Bizeps'], 3], ['Schrägbankdrücken', ['Brust', 'Schultern'], 3],
-    ['Stoßen mit Medizinball', ['Schultern', 'Bauch'], 3], ['Kreuzheben', ['Rücken', 'Beine', 'Po'], 3],
-    ['Hürdensprünge', ['Beine'], 3], ['Half Kneeling Landmine Rotation explosiv', ['Bauch', 'Schultern'], 3],
-    ['Beinpresse exzentrisch', ['Beine'], 3], ['Klimmzüge Obergriff', ['Rücken', 'Bizeps'], 3],
-    ['Dips', ['Trizeps', 'Brust'], 3]] },
-  { name: 'Schnellkraft A', ex: [
-    ['Kniebeugen Sprünge', ['Beine', 'Po'], 4], ['Kettlebell Swing', ['Po', 'Rücken'], 4],
-    ['Niedersprünge', ['Beine'], 3], ['Medizinball schleudern', ['Bauch', 'Schultern'], 4],
-    ['Front Raise Catch', ['Schultern'], 3]] },
-  { name: 'Schnellkraft B', ex: [
-    ['Aufsteiger Kurzhantel', ['Beine', 'Po'], 4], ['Bankdrücken explosiv', ['Brust'], 4],
-    ['Kreuzheben Schnellkraft', ['Rücken', 'Beine'], 4], ['Hürdensprünge', ['Beine'], 4],
-    ['Medball Overhead Slam', ['Bauch', 'Schultern'], 4]] },
-  { name: 'MKraft Erhalt & Plyo', ex: [
-    ['Rückenstrecker schräg', ['Rücken'], 3], ['Bauchlage MB Wurf Überkopf', ['Rücken', 'Schultern'], 3],
-    ['Kniebeuge', ['Beine', 'Po'], 3], ['Landmine Split Jerk', ['Schultern', 'Beine'], 3],
-    ['Schulterdrücken', ['Schultern', 'Trizeps'], 3], ['Liegestütz explosiv Theraband', ['Brust', 'Trizeps'], 3],
-    ['Bridge', ['Po'], 3], ['Kettlebell Swing', ['Po', 'Rücken'], 3]] }
-];
-
 let S = load();
 function load() {
   try {
@@ -365,10 +318,13 @@ function load() {
       if (!d.orms) d.orms = [];
       if (!d.settings) d.settings = { rest: 90 };
       if (!d.settings.theme) d.settings.theme = 'auto';
+      if (!d.gym) d.gym = { owned: [], spent: 0 };
+      if (!d.gym.size) d.gym.size = 4;
+      if (!d.gym.pos) d.gym.pos = {};
       return d;
     }
   } catch (e) {}
-  return { plans: [], workouts: [], weights: [], orms: [], settings: { rest: 90, theme: 'auto' }, active: null };
+  return { plans: [], workouts: [], weights: [], orms: [], settings: { rest: 90, theme: 'auto' }, active: null, gym: { owned: [], spent: 0, size: 4, pos: {} } };
 }
 function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -386,6 +342,8 @@ let showAddWo = false;       // Formular „Übung hinzufügen" im Training offe
 let showAddPlan = false;     // Formular „Neue Übung" im Plan-Editor offen?
 let showSettings = false;    // Einstellungen auf der Startseite offen?
 let showImportPlan = false;  // Eingabefeld für geteilten Plan offen?
+let closedFolders = [];      // zugeklappte Plan-Ordner
+let gymSel = null;           // im Gym gerade ausgewähltes Gerät
 let openHist = null;
 let calMonth = null;
 let editExIdx = null;        // Index der gerade inline bearbeiteten Übung
@@ -402,22 +360,6 @@ let woEditIdx = null;        // Index der im Training bearbeiteten Übung (Name/
 let suggList = [];           // aktuelle Übungs-Vorschläge (für pickSuggest per Index)
 let selAnaEx = null;         // gewählte Übung in der Übungs-Analyse
 let anaExNames = [];
-
-/* ================= Vorlagen-Pläne ================= */
-function loadTemplates(silent) {
-  let added = 0;
-  for (const t of DEFAULT_PLANS) {
-    if (S.plans.some(p => p.name.toLowerCase() === t.name.toLowerCase())) continue;
-    S.plans.push({
-      id: uid(), name: t.name,
-      exercises: t.ex.map(([name, muscles, target]) => ({ name, muscles: [...muscles], target }))
-    });
-    added++;
-  }
-  if (added) save();
-  if (!silent) alert(added ? added + ' Pläne hinzugefügt ✓' : 'Alle Vorlagen-Pläne sind schon vorhanden.');
-  render();
-}
 
 /* ================= Helfer ================= */
 /* Übungen können mehrere Muskelgruppen haben; alte Einträge hatten nur e.muscle */
@@ -516,13 +458,18 @@ function go(tab) {
   editSet = null;
   woEditIdx = null;
   selWtype = ''; wtypeTouched = false;
+  gymSel = null;
   render();
   scrollTo(0, 0);
 }
 
+/* Welcher Reiter leuchtet bei welcher Ansicht? Analyse/1RM/Gewicht liegen unter „Mehr". */
+const TAB_OF = { planEdit: 'plans', workout: 'home', analysis: 'more', orm: 'more', weight: 'more' };
+
 function render() {
+  const activeTab = TAB_OF[cur] || cur;
   document.querySelectorAll('.navbtn').forEach(b => {
-    b.classList.toggle('on', b.dataset.tab === cur);
+    b.classList.toggle('on', b.dataset.tab === activeTab);
   });
   const v = document.getElementById('view');
   if (cur === 'home') v.innerHTML = rHome();
@@ -530,12 +477,336 @@ function render() {
   else if (cur === 'planEdit') v.innerHTML = editPlan ? rPlanEdit() : rPlans();
   else if (cur === 'workout') v.innerHTML = rWorkout();
   else if (cur === 'history') v.innerHTML = rHistory();
+  else if (cur === 'gym') v.innerHTML = rGym();
+  else if (cur === 'more') v.innerHTML = rMore();
   else if (cur === 'analysis') v.innerHTML = rAnalysis();
   else if (cur === 'orm') v.innerHTML = rOrm();
   else if (cur === 'weight') v.innerHTML = rWeight();
   // Übungs-Vorschläge unter den Namensfeldern befüllen
   if (cur === 'planEdit' && editPlan) filterSuggest('plan');
   else if (cur === 'workout' && S.active) filterSuggest('wo');
+}
+
+/* ================= Dein Gym (Aufbau-Spiel) =================
+   Münzen werden immer aus dem kompletten Verlauf berechnet – auch rückwirkend.
+   Gespeichert wird nur, was ausgegeben und gekauft wurde. */
+const EQUIPMENT = [
+  { id: 'mat',       name: 'Trainingsmatte',  price: 50,   muscle: null,        need: 0  },
+  { id: 'dumbbells', name: 'Kurzhantel-Set',  price: 120,  muscle: null,        need: 0  },
+  { id: 'bench',     name: 'Hantelbank',      price: 220,  muscle: 'Brust',     need: 20 },
+  { id: 'pullup',    name: 'Klimmzugstange',  price: 300,  muscle: 'Rücken',    need: 20 },
+  { id: 'rack',      name: 'Squat Rack',      price: 480,  muscle: 'Beine',     need: 30 },
+  { id: 'lat',       name: 'Latzug',          price: 600,  muscle: 'Rücken',    need: 50 },
+  { id: 'treadmill', name: 'Laufband',        price: 700,  muscle: 'Cardio',    need: 8  },
+  { id: 'cable',     name: 'Kabelturm',       price: 850,  muscle: 'Schultern', need: 40 },
+  { id: 'legpress',  name: 'Beinpresse',      price: 1100, muscle: 'Beine',     need: 80 },
+  { id: 'watercooler', name: 'Wasserspender', price: 160,  muscle: null,        need: 0  },
+  { id: 'mirror',    name: 'Spiegelwand',     price: 1400, muscle: null,        need: 0  },
+  { id: 'plant',     name: 'Pflanze',         price: 90,   muscle: null,        need: 0  }
+];
+/* Ausbaustufen der Halle: Kantenlänge des Rasters und Preis für den Ausbau */
+const GYM_SIZES = [
+  { size: 4, price: 0 },
+  { size: 5, price: 400 },
+  { size: 6, price: 900 },
+  { size: 7, price: 1800 }
+];
+const owned = id => (S.gym && S.gym.owned || []).includes(id);
+const gymSize = () => (S.gym && S.gym.size) || 4;
+const gymPos = () => (S.gym && S.gym.pos) || {};
+
+/* Münzen aus allen bisherigen Trainings */
+function earnedCoins() {
+  let c = 0;
+  for (const w of S.workouts) {
+    c += 10;                                // Grundbetrag je Einheit
+    c += Math.floor(volume(w) / 500);       // je 500 kg Volumen eine Münze
+  }
+  c += activeWeeks() * 20;                  // Bonus für fleißige Wochen
+  return c;
+}
+/* Wochen, in denen mindestens dreimal trainiert wurde */
+function activeWeeks() {
+  const weeks = new Map();
+  for (const w of S.workouts) {
+    const d = new Date(w.date); d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const k = d.toISOString().slice(0, 10);
+    weeks.set(k, (weeks.get(k) || 0) + 1);
+  }
+  return [...weeks.values()].filter(n => n >= 3).length;
+}
+const coins = () => Math.max(0, earnedCoins() - ((S.gym && S.gym.spent) || 0));
+/* Arbeitssätze je Muskelgruppe über die gesamte Historie – schaltet Geräte frei */
+function setsForMuscle(m) {
+  let n = 0;
+  for (const w of S.workouts)
+    for (const e of w.entries)
+      if (musclesOf(e).includes(m)) n += e.sets.filter(s => !isWarmup(s)).length;
+  return n;
+}
+function eqState(eq) {
+  if (owned(eq.id)) return 'owned';
+  if (eq.muscle && setsForMuscle(eq.muscle) < eq.need) return 'locked';
+  return coins() >= eq.price ? 'buy' : 'poor';
+}
+function buyEquipment(id) {
+  const eq = EQUIPMENT.find(e => e.id === id);
+  if (!eq || owned(id)) return;
+  if (eqState(eq) !== 'buy') return;
+  const platz = freeTile();
+  if (!platz) { alert('In deiner Halle ist kein Platz mehr frei.\n\nBau sie erst aus – dann passt auch dieses Gerät rein.'); return; }
+  if (!confirm(`„${eq.name}" für ${eq.price} Münzen kaufen?\n\nDanach hast du noch ${coins() - eq.price} Münzen.`)) return;
+  S.gym.owned.push(id);
+  S.gym.spent = (S.gym.spent || 0) + eq.price;
+  if (!S.gym.pos) S.gym.pos = {};
+  S.gym.pos[id] = platz;          // landet auf dem ersten freien Feld, umstellbar
+  save(); render();
+}
+
+/* ---- Die Halle in isometrischer Ansicht ----
+   Das Raster ist size×size Felder groß. Jedes Gerät belegt genau ein Feld und
+   lässt sich frei umstellen: Gerät antippen, dann Zielfeld antippen. */
+const TW = 54, TH = 27;   // Breite und Höhe einer Bodenkachel
+
+/* Bildschirmposition der oberen Ecke einer Kachel */
+function isoXY(c, r, n) {
+  const ox = (n - 1) * TW / 2 + TW / 2 + 8;
+  return { x: ox + (c - r) * TW / 2, y: 14 + (c + r) * TH / 2 };
+}
+/* Einfacher Quader in Iso-Optik, Mittelpunkt der Standfläche bei (cx, cy) */
+function isoBox(cx, cy, f, h, col, dark) {
+  const w = TW * f / 2, d = TH * f / 2;
+  const top = `${cx},${cy - d - h} ${cx + w},${cy - h} ${cx},${cy + d - h} ${cx - w},${cy - h}`;
+  const left = `${cx - w},${cy - h} ${cx},${cy + d - h} ${cx},${cy + d} ${cx - w},${cy}`;
+  const right = `${cx + w},${cy - h} ${cx},${cy + d - h} ${cx},${cy + d} ${cx + w},${cy}`;
+  return `<polygon points="${left}" fill="${dark}"/><polygon points="${right}" fill="${dark}" opacity="0.72"/>`
+    + `<polygon points="${top}" fill="${col}"/>`;
+}
+/* Ein Gerät, gezeichnet um den Mittelpunkt seiner Kachel */
+function eqIso(id, cx, cy) {
+  const steel = 'var(--muted)', dsteel = 'var(--sep)';
+  const pad = 'var(--danger)', dpad = 'var(--danger)';
+  const dark = 'var(--text)';
+  const B = (f, h, c, d2) => isoBox(cx, cy, f, h, c, d2);
+  switch (id) {
+    case 'mat':
+      return B(0.92, 3, 'var(--accent)', 'var(--accent)');
+    case 'dumbbells':
+      return B(0.8, 5, steel, dsteel)
+        + [0, 1, 2].map(i => `<g transform="translate(${-13 + i * 13},${-9 - i * 1.5})">
+            <ellipse cx="${cx}" cy="${cy}" rx="5" ry="3" fill="${dark}"/>
+            <ellipse cx="${cx}" cy="${cy - 3}" rx="5" ry="3" fill="${steel}"/></g>`).join('');
+    case 'bench':
+      return B(0.32, 10, steel, dsteel)
+        + isoBox(cx, cy - 10, 0.74, 5, pad, dpad);
+    case 'pullup':
+      return B(0.86, 4, steel, dsteel)
+        + `<rect x="${cx - 17}" y="${cy - 30}" width="4" height="27" rx="2" fill="${steel}"/>
+           <rect x="${cx + 13}" y="${cy - 30}" width="4" height="27" rx="2" fill="${steel}"/>`
+        + isoBox(cx, cy - 29, 0.8, 4, 'var(--accent)', 'var(--accent)');
+    case 'rack':
+      return B(0.9, 5, steel, dsteel)
+        + `<rect x="${cx - 20}" y="${cy - 38}" width="5" height="35" rx="2" fill="${steel}"/>
+           <rect x="${cx + 15}" y="${cy - 38}" width="5" height="35" rx="2" fill="${steel}"/>`
+        + `<rect x="${cx - 23}" y="${cy - 28}" width="46" height="4" rx="2" fill="${dark}"/>`
+        + `<circle cx="${cx - 23}" cy="${cy - 26}" r="6" fill="${pad}"/><circle cx="${cx + 23}" cy="${cy - 26}" r="6" fill="${pad}"/>`;
+    case 'lat':
+      return B(0.86, 5, steel, dsteel)
+        + `<rect x="${cx - 18}" y="${cy - 40}" width="5" height="37" rx="2" fill="${steel}"/>`
+        + `<rect x="${cx - 20}" y="${cy - 40}" width="36" height="4" rx="2" fill="${dark}"/>`
+        + `<line x1="${cx + 8}" y1="${cy - 36}" x2="${cx + 8}" y2="${cy - 26}" stroke="${steel}" stroke-width="2"/>`
+        + `<rect x="${cx - 1}" y="${cy - 28}" width="19" height="4" rx="2" fill="${pad}"/>`
+        + isoBox(cx + 4, cy - 2, 0.42, 9, pad, dpad);
+    case 'treadmill':
+      return B(0.92, 7, dark, dark)
+        + isoBox(cx, cy - 7, 0.86, 4, steel, dsteel)
+        + `<rect x="${cx + 4}" y="${cy - 29}" width="4" height="21" rx="2" fill="${steel}"/>`
+        + `<rect x="${cx - 3}" y="${cy - 34}" width="19" height="8" rx="3" fill="var(--accent)"/>`;
+    case 'cable':
+      return B(0.78, 5, steel, dsteel)
+        + `<rect x="${cx - 16}" y="${cy - 42}" width="6" height="39" rx="3" fill="${steel}"/>`
+        + `<rect x="${cx - 18}" y="${cy - 42}" width="23" height="4" rx="2" fill="${dark}"/>`
+        + `<line x1="${cx + 1}" y1="${cy - 38}" x2="${cx + 1}" y2="${cy - 24}" stroke="${steel}" stroke-width="2"/>`
+        + `<rect x="${cx - 5}" y="${cy - 24}" width="12" height="4" rx="2" fill="${pad}"/>`
+        + isoBox(cx - 12, cy - 3, 0.36, 15, dark, dark);
+    case 'legpress':
+      return B(0.56, 8, steel, dsteel)
+        + `<g transform="rotate(-32 ${cx} ${cy - 8})">${isoBox(cx, cy - 8, 0.8, 7, pad, dpad)}</g>`
+        + `<rect x="${cx + 5}" y="${cy - 28}" width="19" height="5" rx="3" fill="${dark}"/>`;
+    case 'watercooler':
+      return B(0.32, 14, steel, dsteel)
+        + `<ellipse cx="${cx}" cy="${cy - 14}" rx="8" ry="4" fill="var(--accent)"/>`
+        + `<path d="M${cx - 8} ${cy - 14} q8 -13 16 0 z" fill="var(--accent)" opacity="0.85"/>`;
+    case 'plant':
+      return B(0.3, 9, 'var(--orange)', 'var(--orange)')
+        + `<circle cx="${cx}" cy="${cy - 15}" r="7" fill="var(--accent2)"/>
+           <circle cx="${cx - 6}" cy="${cy - 10}" r="5" fill="var(--accent2)" opacity="0.85"/>
+           <circle cx="${cx + 6}" cy="${cy - 11}" r="5" fill="var(--accent2)" opacity="0.85"/>`;
+    case 'mirror':
+      return B(0.9, 4, steel, dsteel)
+        + `<rect x="${cx - 18}" y="${cy - 36}" width="36" height="33" rx="3" fill="var(--card)" stroke="${steel}" stroke-width="2"/>`
+        + `<line x1="${cx - 12}" y1="${cy - 8}" x2="${cx + 12}" y2="${cy - 32}" stroke="#fff" stroke-width="4" opacity="0.32"/>`;
+  }
+  return '';
+}
+
+function gymSVG() {
+  const n = gymSize();
+  const pos = gymPos();
+  const W = n * TW + 16, H = n * TH + 74;
+  const besetzt = {};
+  for (const [id, p] of Object.entries(pos)) if (owned(id)) besetzt[p[0] + ',' + p[1]] = id;
+
+  // Boden
+  let tiles = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const { x, y } = isoXY(c, r, n);
+    const hell = (c + r) % 2 === 0;
+    const frei = !besetzt[c + ',' + r];
+    const ziel = gymSel && frei;
+    tiles += `<polygon points="${x},${y} ${x + TW / 2},${y + TH / 2} ${x},${y + TH} ${x - TW / 2},${y + TH / 2}"
+      fill="${ziel ? 'var(--accent)' : hell ? 'var(--fill)' : 'var(--fill2)'}" ${ziel ? 'opacity="0.35"' : ''}
+      stroke="var(--sep)" stroke-width="1" style="cursor:pointer" onclick="tapTile(${c},${r})"/>`;
+  }
+  // Geräte von hinten nach vorne, damit sie sich korrekt überdecken
+  const liste = Object.entries(besetzt)
+    .map(([k, id]) => ({ id, c: +k.split(',')[0], r: +k.split(',')[1] }))
+    .sort((a, b) => (a.c + a.r) - (b.c + b.r));
+  let items = '';
+  for (const o of liste) {
+    const { x, y } = isoXY(o.c, o.r, n);
+    const cx = x, cy = y + TH / 2;
+    const aktiv = gymSel === o.id;
+    items += `<g style="cursor:pointer" onclick="tapEquip('${o.id}')" ${aktiv ? 'opacity="0.65"' : ''}>
+      ${aktiv ? `<ellipse cx="${cx}" cy="${cy}" rx="${TW / 2 - 2}" ry="${TH / 2 - 1}" fill="var(--accent)" opacity="0.5"/>` : ''}
+      ${eqIso(o.id, cx, cy)}</g>`;
+  }
+  const leer = !Object.keys(besetzt).length;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
+    <g transform="translate(0,44)">${tiles}${items}</g>
+    ${leer ? `<text x="${W / 2}" y="${H / 2 + 40}" text-anchor="middle" font-size="13" fill="var(--muted)">Deine Halle ist noch leer – kauf unten dein erstes Gerät</text>` : ''}
+  </svg>`;
+}
+/* Erstes freies Feld suchen (für neu gekaufte Geräte) */
+function freeTile() {
+  const n = gymSize(), pos = gymPos();
+  const belegt = new Set(Object.entries(pos).filter(([id]) => owned(id)).map(([, p]) => p[0] + ',' + p[1]));
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (!belegt.has(c + ',' + r)) return [c, r];
+  return null;
+}
+/* Gerät an-/abwählen */
+function tapEquip(id) {
+  gymSel = gymSel === id ? null : id;
+  render();
+}
+/* Zielfeld antippen: ausgewähltes Gerät dorthin stellen */
+function tapTile(c, r) {
+  if (!gymSel) return;
+  const besetzt = Object.entries(gymPos()).some(([id, p]) => owned(id) && id !== gymSel && p[0] === c && p[1] === r);
+  if (besetzt) return;
+  S.gym.pos[gymSel] = [c, r];
+  gymSel = null;
+  save(); render();
+}
+/* Halle ausbauen */
+function expandGym() {
+  const stufe = GYM_SIZES.findIndex(s => s.size === gymSize());
+  const next = GYM_SIZES[stufe + 1];
+  if (!next) return;
+  if (coins() < next.price) { alert(`Dafür brauchst du ${next.price} Münzen – dir fehlen noch ${next.price - coins()}.`); return; }
+  if (!confirm(`Halle auf ${next.size}×${next.size} Felder ausbauen für ${next.price} Münzen?`)) return;
+  S.gym.size = next.size;
+  S.gym.spent = (S.gym.spent || 0) + next.price;
+  save(); render();
+}
+
+function rGym() {
+  const g = S.gym;
+  const habe = coins(), verdient = earnedCoins();
+  const anz = g.owned.length;
+  let h = `<h1>Mein Gym</h1><div class="sub">Trainiere, verdiene Münzen, bau deine Halle aus</div>
+    <div class="stats" style="margin:18px 0 12px">
+      <div class="stat"><div class="v">${habe.toLocaleString('de-DE')}</div><div class="l">Münzen</div></div>
+      <div class="stat"><div class="v">${anz}/${EQUIPMENT.length}</div><div class="l">Geräte</div></div>
+      <div class="stat"><div class="v">${S.workouts.length}</div><div class="l">Trainings</div></div>
+    </div>
+    <div class="card" style="padding:10px 8px 4px;overflow:hidden">${gymSVG()}
+      <div class="hint" style="text-align:center;margin:2px 0 8px">${gymSel
+        ? `<b style="color:var(--accent)">${esc(EQUIPMENT.find(e => e.id === gymSel).name)}</b> ausgewählt – tippe auf ein freies Feld`
+        : anz ? 'Tippe ein Gerät an, um es umzustellen' : 'Kauf dir unten dein erstes Gerät'}</div>
+    </div>`;
+
+  // Halle ausbauen
+  const stufe = GYM_SIZES.findIndex(s => s.size === gymSize());
+  const next = GYM_SIZES[stufe + 1];
+  const belegt = Object.entries(gymPos()).filter(([id]) => owned(id)).length;
+  h += `<div class="card">
+    <div class="listitem">
+      <div style="flex:1"><b style="font-size:15px">Halle: ${gymSize()}×${gymSize()} Felder</b>
+        <div class="hint" style="margin-top:3px">${belegt} von ${gymSize() * gymSize()} Plätzen belegt</div></div>
+      ${next
+        ? `<button class="btn sm" style="width:auto;padding:9px 16px${habe >= next.price ? '' : ';opacity:.45'}" onclick="expandGym()">Ausbauen ${next.price} ⬤</button>`
+        : `<span style="color:var(--accent2);font-weight:700;font-size:15px">✓ max.</span>`}
+    </div>
+    ${next ? `<div class="hint" style="margin-top:8px">Nächste Stufe: ${next.size}×${next.size} Felder (${next.size * next.size} Plätze)</div>` : ''}
+  </div>`;
+
+  // Shop
+  h += `<h2>Shop</h2>`;
+  const sorted = [...EQUIPMENT].sort((a, b) => a.price - b.price);
+  for (const eq of sorted) {
+    const st = eqState(eq);
+    const bedarf = eq.muscle ? `${setsForMuscle(eq.muscle)}/${eq.need} ${eq.muscle}-Sätze` : '';
+    let rechts, hinweis;
+    if (st === 'owned') {
+      rechts = `<span style="color:var(--accent2);font-weight:700;font-size:15px">✓ gekauft</span>`;
+      hinweis = 'Steht in deiner Halle';
+    } else if (st === 'locked') {
+      rechts = `<span class="hint" style="margin:0">🔒</span>`;
+      hinweis = `Erst ab ${bedarf}`;
+    } else if (st === 'buy') {
+      rechts = `<button class="btn sm" style="width:auto;padding:9px 16px" onclick="buyEquipment('${eq.id}')">${eq.price} ⬤</button>`;
+      hinweis = bedarf ? `${bedarf} ✓` : 'Sofort verfügbar';
+    } else {
+      rechts = `<span class="hint" style="margin:0">${eq.price} ⬤</span>`;
+      hinweis = `Noch ${(eq.price - habe).toLocaleString('de-DE')} Münzen sammeln`;
+    }
+    h += `<div class="card" style="padding:13px 16px${st === 'locked' || st === 'poor' ? ';opacity:.62' : ''}">
+      <div class="listitem">
+        <div style="flex:1;min-width:0"><b style="font-size:15px">${eq.name}</b>
+          <div class="hint" style="margin-top:3px">${hinweis}</div></div>
+        <div style="flex-shrink:0">${rechts}</div>
+      </div></div>`;
+  }
+
+  h += `<div class="card" style="margin-top:6px">
+    <b style="font-size:15px">So verdienst du Münzen</b>
+    <div class="hint" style="margin-top:6px;line-height:1.7">
+      • <b>10</b> pro abgeschlossenem Training<br>
+      • <b>1</b> je 500 kg Trainingsvolumen<br>
+      • <b>20</b> für jede Woche mit mindestens 3 Trainings
+    </div>
+    <div class="hint" style="margin-top:10px">Insgesamt verdient: <b>${verdient.toLocaleString('de-DE')}</b> · ausgegeben: <b>${(g.spent || 0).toLocaleString('de-DE')}</b></div>
+  </div>`;
+  return h;
+}
+
+/* ================= „Mehr"-Übersicht ================= */
+function rMore() {
+  const rows = [
+    ['analysis', 'Analyse', 'Kraftentwicklung, Muskelgruppen, Wochen'],
+    ['orm', 'One-Rep-Max', 'Deine Bestwerte je Übung'],
+    ['weight', 'Körpergewicht', 'Verlauf deines Gewichts']
+  ];
+  return `<h1>Mehr</h1><div class="sub">Auswertung &amp; Werte</div><div style="height:18px"></div>
+    <div class="card" style="padding:8px 16px">
+      ${rows.map(([tab, title, sub], i) => `
+        <div class="listitem" style="padding:14px 0;cursor:pointer${i < rows.length - 1 ? ';border-bottom:0.5px solid var(--sep)' : ''}" onclick="go('${tab}')">
+          <div><b style="font-size:16px">${title}</b><div class="hint" style="margin-top:2px">${sub}</div></div>
+          <div style="color:var(--muted)">›</div>
+        </div>`).join('')}
+    </div>`;
 }
 
 /* ================= Start ================= */
@@ -566,15 +837,27 @@ function rHome() {
       h += `<div class="card"><div class="sub" style="margin-bottom:12px">Du hast noch keinen Trainingsplan. Erstelle zuerst einen – oder starte einfach frei drauflos.</div>
         <button class="btn sm ghost" onclick="newPlan()">+ Trainingsplan erstellen</button></div>`;
     }
-    for (const p of S.plans) {
-      const muscles = [...new Set(p.exercises.flatMap(musclesOf))];
-      h += `<div class="card" onclick="startWorkout('${p.id}')" style="cursor:pointer">
-        <div class="listitem">
-          <div><b style="font-size:16px">${esc(p.name)}</b>
-            <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
-            <div class="sub">${p.exercises.length} Übungen</div></div>
-          <div style="color:var(--accent);font-size:22px">▶︎</div>
-        </div></div>`;
+    const hGroups = plansByFolder();
+    const hOrdner = hGroups.length > 1 || (hGroups.length === 1 && hGroups[0][0] !== NO_FOLDER);
+    for (const [folder, plans] of hGroups) {
+      const zu = closedFolders.includes(folder);
+      if (hOrdner) {
+        h += `<div class="folderhead" onclick="toggleFolder('${esc(folder).replace(/'/g, "\\'")}')">
+          <span>${zu ? '▸' : '▾'} ${esc(folder)}</span>
+          <span class="hint" style="margin:0">${plans.length}</span>
+        </div>`;
+        if (zu) continue;
+      }
+      for (const p of plans) {
+        const muscles = [...new Set(p.exercises.flatMap(musclesOf))];
+        h += `<div class="card" onclick="startWorkout('${p.id}')" style="cursor:pointer">
+          <div class="listitem">
+            <div><b style="font-size:16px">${esc(p.name)}</b>
+              <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
+              <div class="sub">${p.exercises.length} Übungen</div></div>
+            <div style="color:var(--accent);font-size:22px">▶︎</div>
+          </div></div>`;
+      }
     }
     if (S.workouts.length) {
       const lw = S.workouts[S.workouts.length - 1];
@@ -684,20 +967,32 @@ function rPlans() {
   if (!S.plans.length) {
     h += `<div class="empty"><span class="big">📋</span>Noch keine Pläne.<br>Erstelle deinen ersten Trainingsplan!</div>`;
   }
-  for (const p of S.plans) {
-    const muscles = [...new Set(p.exercises.flatMap(musclesOf))];
-    h += `<div class="card"><div class="listitem">
-      <div style="flex:1;cursor:pointer" onclick="openPlan('${p.id}')">
-        <b style="font-size:16px">${esc(p.name)}</b>
-        <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
-        <div class="sub">${p.exercises.length} Übungen · tippen zum Bearbeiten</div>
-      </div>
-      <div style="display:flex;gap:6px">
-        <button class="iconbtn" title="Teilen" onclick="sharePlan('${p.id}')">⤴</button>
-        <button class="iconbtn" title="Duplizieren" onclick="dupPlan('${p.id}')">⧉</button>
-        <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
-      </div>
-    </div></div>`;
+  const groups = plansByFolder();
+  const mitOrdnern = groups.length > 1 || (groups.length === 1 && groups[0][0] !== NO_FOLDER);
+  for (const [folder, plans] of groups) {
+    const zu = closedFolders.includes(folder);
+    if (mitOrdnern) {
+      h += `<div class="folderhead" onclick="toggleFolder('${esc(folder).replace(/'/g, "\\'")}')">
+        <span>${zu ? '▸' : '▾'} ${esc(folder)}</span>
+        <span class="hint" style="margin:0">${plans.length}</span>
+      </div>`;
+      if (zu) continue;
+    }
+    for (const p of plans) {
+      const muscles = [...new Set(p.exercises.flatMap(musclesOf))];
+      h += `<div class="card"><div class="listitem">
+        <div style="flex:1;cursor:pointer" onclick="openPlan('${p.id}')">
+          <b style="font-size:16px">${esc(p.name)}</b>
+          <div style="margin-top:7px;display:flex;gap:5px;flex-wrap:wrap">${muscles.map(badge).join('')}</div>
+          <div class="sub">${p.exercises.length} Übungen · tippen zum Bearbeiten</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="iconbtn" title="Teilen" onclick="sharePlan('${p.id}')">⤴</button>
+          <button class="iconbtn" title="Duplizieren" onclick="dupPlan('${p.id}')">⧉</button>
+          <button class="iconbtn" onclick="delPlan('${p.id}')">🗑</button>
+        </div>
+      </div></div>`;
+    }
   }
   h += `<button class="btn" style="margin-top:10px" onclick="newPlan()">+ Neuer Plan</button>`;
 
@@ -872,12 +1167,49 @@ function dupPlan(id) {
   save(); render();
 }
 
+/* ===== Ordner für Trainingspläne ===== */
+const NO_FOLDER = 'Ohne Ordner';
+function allFolders() {
+  const seen = [];
+  for (const p of S.plans) {
+    const f = (p.folder || '').trim();
+    if (f && !seen.some(x => x.toLowerCase() === f.toLowerCase())) seen.push(f);
+  }
+  return seen.sort((a, b) => a.localeCompare(b, 'de'));
+}
+/* Pläne nach Ordner gruppieren; „Ohne Ordner" kommt zuletzt */
+function plansByFolder() {
+  const groups = new Map();
+  for (const p of S.plans) {
+    const f = (p.folder || '').trim() || NO_FOLDER;
+    if (!groups.has(f)) groups.set(f, []);
+    groups.get(f).push(p);
+  }
+  return [...groups.entries()].sort((a, b) =>
+    a[0] === NO_FOLDER ? 1 : b[0] === NO_FOLDER ? -1 : a[0].localeCompare(b[0], 'de'));
+}
+function pickFolder(i) {
+  syncPlanName();
+  editPlan.folder = i < 0 ? '' : (allFolders()[i] || '');
+  render();
+}
+function toggleFolder(name) {
+  const i = closedFolders.indexOf(name);
+  if (i >= 0) closedFolders.splice(i, 1); else closedFolders.push(name);
+  render();
+}
+
 function rPlanEdit() {
   const p = editPlan;
   let h = `<div class="topbar"><button class="back" onclick="go('plans')">‹ Zurück</button></div>
     <h1>${p.isNew ? 'Neuer Plan' : 'Plan bearbeiten'}</h1>
     <label class="fld">Name des Plans</label>
     <input id="plan-name" placeholder="z. B. Push Day, Oberkörper …" value="${esc(p.name)}">
+    <label class="fld">Ordner <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></label>
+    <input id="plan-folder" placeholder="z. B. Maximalkraft" value="${esc(p.folder || '')}">
+    ${allFolders().length ? `<div class="chips" style="margin-top:8px">${allFolders().map((f, i) =>
+      `<button class="chip ${(p.folder || '') === f ? 'on' : ''}" style="padding:6px 12px;font-size:13px" onclick="pickFolder(${i})">${esc(f)}</button>`).join('')}
+      ${p.folder ? `<button class="chip" style="padding:6px 12px;font-size:13px" onclick="pickFolder(-1)">Kein Ordner</button>` : ''}</div>` : ''}
     <h2>Übungen</h2>`;
   if (!p.exercises.length) h += `<div class="sub" style="margin-bottom:12px">Füge unten Übungen hinzu. Mit ↑ ↓ änderst du die Reihenfolge.</div>`;
   p.exercises.forEach((e, i) => {
@@ -966,6 +1298,8 @@ function pickMuscle(m) {
 function syncPlanName() {
   const el = document.getElementById('plan-name');
   if (el && editPlan) editPlan.name = el.value;
+  const fo = document.getElementById('plan-folder');
+  if (fo && editPlan) editPlan.folder = fo.value;
   const ex = document.getElementById('ex-name');
   if (ex && editPlan) editPlan._draft = ex.value;
   const st = document.getElementById('ex-sets');
@@ -1127,6 +1461,8 @@ function savePlan() {
   if (!editPlan.exercises.length) { alert('Füge mindestens eine Übung hinzu.'); return; }
   delete editPlan._draft;
   delete editPlan._draftSets;
+  const fol = (editPlan.folder || '').trim();
+  if (fol) editPlan.folder = fol; else delete editPlan.folder;
   const wasNew = editPlan.isNew; delete editPlan.isNew;
   if (wasNew) S.plans.push(editPlan);
   else S.plans = S.plans.map(p => p.id === editPlan.id ? editPlan : p);
@@ -1340,9 +1676,19 @@ function rWorkout() {
       <button class="btn sm ghost" style="margin-top:14px" onclick="addWoEx()">+ Hinzufügen</button>
     </div>`;
   }
-  h += `<button class="btn" style="margin-top:8px" onclick="finishWorkout()">✓ Training beenden</button>
+  h += `<div class="card" style="margin-top:12px;padding:13px 16px">
+      <label class="fld" style="margin-top:0">Notiz zum Training</label>
+      <textarea id="wo-note" rows="2" placeholder="z. B. Schulter gezwickt, Gewicht reduziert" oninput="syncWoNote()"
+        style="width:100%;background:var(--fill);border:none;color:var(--text);font-size:15px;font-family:inherit;border-radius:11px;padding:12px 14px;outline:none;resize:vertical">${esc(S.active.note || '')}</textarea>
+    </div>
+    <button class="btn" style="margin-top:8px" onclick="finishWorkout()">✓ Training beenden</button>
     <button class="btn danger sm" style="margin-top:10px" onclick="cancelWorkout()">Training verwerfen</button>`;
   return h;
+}
+/* Notiz laufend mitsichern, damit sie bei jedem Neuaufbau erhalten bleibt */
+function syncWoNote() {
+  const el = document.getElementById('wo-note');
+  if (el && S.active) { S.active.note = el.value; save(); }
 }
 function toggleOpts(i) { openOpts = openOpts === i ? null : i; render(); }
 function toggleAddWo() { showAddWo = !showAddWo; render(); }
@@ -1709,15 +2055,19 @@ function rmSet(i, j) {
   save(); render();
 }
 function finishWorkout() {
+  syncWoNote();
   const entries = S.active.entries.filter(e => e.sets.length);
   if (!entries.length) { alert('Du hast noch keine Sätze eingetragen.'); return; }
-  S.workouts.push({
+  const w = {
     id: uid(),
     date: new Date().toISOString(),
     planName: S.active.planName,
     duration: Math.max(1, Math.round((Date.now() - new Date(S.active.start)) / 60000)),
     entries
-  });
+  };
+  const note = (S.active.note || '').trim();
+  if (note) w.note = note;
+  S.workouts.push(w);
   S.active = null;
   stopRest();
   save(); go('history');
@@ -1834,6 +2184,14 @@ function rHistory() {
     if (open) {
       const editing = histEdit === w.id;
       h += `<div style="margin-top:12px;border-top:0.5px solid var(--sep);padding-top:12px">`;
+      if (editing) {
+        h += `<label class="fld" style="margin-top:0">Notiz</label>
+          <textarea id="hist-note" rows="2" placeholder="z. B. Schulter gezwickt"
+            style="width:100%;background:var(--fill);border:none;color:var(--text);font-size:15px;font-family:inherit;border-radius:11px;padding:12px 14px;outline:none;resize:vertical;margin-bottom:14px">${esc(w.note || '')}</textarea>`;
+      } else if (w.note) {
+        h += `<div class="card" style="background:var(--fill);padding:11px 13px;margin-bottom:12px">
+          <div class="hint" style="margin:0 0 3px">Notiz</div>${esc(w.note)}</div>`;
+      }
       w.entries.forEach((e, ei) => {
         h += `<div style="margin-bottom:12px"><b>${esc(e.name)}</b> &nbsp;${badges(e)} ${wtBadge(e)}
           <div class="chips" style="margin-top:7px">
@@ -1884,7 +2242,11 @@ function startHistEdit(id) {
 }
 function endHistEdit() {
   const w = S.workouts.find(w => w.id === histEdit);
-  if (w) w.entries = w.entries.filter(e => e.sets.length); // leere Übungen entfernen
+  if (w) {
+    const el = document.getElementById('hist-note');
+    if (el) { const n = el.value.trim(); if (n) w.note = n; else delete w.note; }
+    w.entries = w.entries.filter(e => e.sets.length); // leere Übungen entfernen
+  }
   histEdit = null;
   editSet = null;
   save(); render();
@@ -1952,7 +2314,8 @@ function lineChart(vals, color) {
 }
 
 function rAnalysis() {
-  let h = `<h1>Analyse</h1><div class="sub">Deine Entwicklung im Blick</div><div style="height:16px"></div>
+  let h = `<div class="topbar"><button class="back" onclick="go('more')">‹ Mehr</button></div>
+    <h1>Analyse</h1><div class="sub">Deine Entwicklung im Blick</div><div style="height:16px"></div>
     <div class="seg">
       <button class="${anaMode === 'plans' ? 'on' : ''}" onclick="setAnaMode('plans')">Pläne</button>
       <button class="${anaMode === 'exercises' ? 'on' : ''}" onclick="setAnaMode('exercises')">Übungen</button>
@@ -2113,11 +2476,113 @@ function rExerciseAnalysis() {
   } else {
     h += `<div class="card"><div class="sub">Trage beim Training RPE ein (Anstrengung 1–10), um hier deine Belastung auszuwerten.</div></div>`;
   }
+  h += relStrength(selAnaEx, pts[pts.length - 1].est);
+  h += stagnationList();
   return h;
 }
 function pickAnaEx(i) { selAnaEx = anaExNames[i]; render(); }
 
+/* Relative Kraft: geschätztes 1RM im Verhältnis zum Körpergewicht.
+   Die Schwellen sind grobe Orientierungswerte aus gängigen Krafttabellen. */
+const STRENGTH_STD = {
+  'kniebeuge': [1.0, 1.5, 2.0, 2.5], 'front kniebeuge': [0.8, 1.2, 1.6, 2.0],
+  'bankdrücken': [0.75, 1.0, 1.5, 2.0], 'schrägbankdrücken': [0.6, 0.9, 1.3, 1.7],
+  'kreuzheben': [1.25, 1.75, 2.25, 2.75], 'schulterdrücken': [0.5, 0.7, 0.9, 1.2],
+  'rudern': [0.6, 0.9, 1.2, 1.5], 'klimmzüge': [1.0, 1.3, 1.6, 2.0], 'klimmzug': [1.0, 1.3, 1.6, 2.0]
+};
+function relStrength(name, est) {
+  const bw = curBodyWeight();
+  if (!bw || !est) return '';
+  const faktor = est / bw;
+  const key = Object.keys(STRENGTH_STD).find(k => name.toLowerCase().includes(k));
+  let einordnung = '';
+  if (key) {
+    const [a, b, c, d] = STRENGTH_STD[key];
+    const stufe = faktor >= d ? ['Elite', 'var(--accent2)'] : faktor >= c ? ['Stark', 'var(--accent2)']
+      : faktor >= b ? ['Fortgeschritten', 'var(--accent)'] : faktor >= a ? ['Geübt', 'var(--accent)']
+      : ['Aufbauphase', 'var(--muted)'];
+    einordnung = `<div class="listitem" style="margin-top:8px">
+      <span class="hint" style="margin:0">Einordnung</span>
+      <b style="color:${stufe[1]};font-size:15px">${stufe[0]}</b></div>
+      <div class="hint" style="margin-top:6px">Orientierung für diese Übung: ab ${a}× geübt · ab ${b}× fortgeschritten · ab ${c}× stark · ab ${d}× Elite</div>`;
+  }
+  return `<div class="card"><b>Relative Kraft</b>
+    <div class="hint" style="margin-bottom:8px">Geschätztes 1RM im Verhältnis zu deinem Körpergewicht (${bw} kg)</div>
+    <div class="listitem"><span class="hint" style="margin:0">${esc(name)}</span>
+      <span style="font-size:21px;font-weight:800;color:var(--accent)">${r1(faktor)}× KG</span></div>
+    ${einordnung}
+    ${!key ? `<div class="hint" style="margin-top:6px">Für diese Übung gibt es keine verbreiteten Vergleichswerte – die Zahl zeigt dir trotzdem deine Entwicklung.</div>` : ''}
+  </div>`;
+}
+/* Übungen, deren bestes geschätztes 1RM seit mehreren Wochen nicht mehr gestiegen ist */
+function stagnationList() {
+  const WOCHEN = 6;
+  const grenze = Date.now() - WOCHEN * 7 * 864e5;
+  const map = new Map();
+  for (const w of [...S.workouts].sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const e of w.entries) {
+      const ss = e.sets.filter(s => s.mins == null && !isWarmup(s));
+      if (!ss.length) continue;
+      const k = e.name.toLowerCase();
+      const best = Math.max(...ss.map(e1rmAdj));
+      const t = new Date(w.date).getTime();
+      if (!map.has(k)) map.set(k, { name: e.name, best: best, bestAt: t, lastAt: t, n: 1 });
+      const o = map.get(k);
+      o.lastAt = t; o.n++;
+      if (best > o.best) { o.best = best; o.bestAt = t; }
+    }
+  }
+  const stagnierend = [...map.values()]
+    .filter(o => o.n >= 4 && o.lastAt >= grenze && o.bestAt < grenze)
+    .sort((a, b) => a.bestAt - b.bestAt);
+  if (!stagnierend.length) return '';
+  return `<div class="card"><b>Mögliche Stagnation</b>
+    <div class="hint" style="margin-bottom:10px">Hier ist dein bester Wert seit über ${WOCHEN} Wochen nicht mehr gestiegen, obwohl du die Übung weiter machst. Oft helfen eine Entlastungswoche, mehr Sätze oder ein anderer Wiederholungsbereich.</div>
+    ${stagnierend.map(o => `<div class="listitem" style="padding:7px 0">
+      <b style="font-size:15px">${esc(o.name)}</b>
+      <span class="sub" style="margin:0">Bestwert ${r1(o.best)} kg · ${Math.floor((Date.now() - o.bestAt) / 864e5 / 7)} Wochen her</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 /* ===== Wochenübersicht ===== */
+/* Wie verteilen sich die Arbeitssätze auf die Wiederholungsbereiche?
+   1–5 Maximalkraft · 6–12 Hypertrophie · 13+ Kraftausdauer */
+function intensitySplit() {
+  const cutoff = Date.now() - 60 * 864e5;
+  const b = [0, 0, 0];
+  let ges = 0;
+  for (const w of S.workouts) {
+    if (new Date(w.date).getTime() < cutoff) continue;
+    for (const e of w.entries)
+      for (const s of e.sets) {
+        if (s.mins != null || isWarmup(s)) continue;
+        ges++;
+        if (s.reps <= 5) b[0]++; else if (s.reps <= 12) b[1]++; else b[2]++;
+      }
+  }
+  if (!ges) return '';
+  const def = [
+    ['Maximalkraft', '1–5 Wdh.', 'var(--danger)'],
+    ['Hypertrophie', '6–12 Wdh.', 'var(--accent)'],
+    ['Kraftausdauer', '13+ Wdh.', 'var(--accent2)']
+  ];
+  const pct = b.map(n => Math.round(n / ges * 100));
+  return `<div class="card"><b>Intensitätsverteilung</b>
+    <div class="hint" style="margin-bottom:10px">Alle Arbeitssätze der letzten 60 Tage nach Wiederholungsbereich – zeigt, woran du gerade wirklich arbeitest.</div>
+    <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin-bottom:12px">
+      ${def.map(([, , c], i) => pct[i] ? `<div style="width:${pct[i]}%;background:${c}"></div>` : '').join('')}
+    </div>
+    ${def.map(([name, range, c], i) => `<div class="listitem" style="padding:5px 0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block"></span>
+        <b style="font-size:14px">${name}</b><span class="hint" style="margin:0">${range}</span>
+      </div>
+      <span class="sub" style="margin:0">${pct[i]} % · ${b[i]} Sätze</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 function rWeekStats() {
   if (!S.workouts.length) {
     return `<div class="empty"><span class="big">📅</span>Noch keine Trainings.<br>Leg los – dann siehst du hier deine Wochenbilanz.</div>`;
@@ -2146,6 +2611,7 @@ function rWeekStats() {
   h += `<div class="card"><b>Volumen pro Woche</b>
     <div class="hint" style="margin-bottom:6px">Summe aus Gewicht × Wiederholungen (ohne Aufwärmsätze)</div>
     ${lineChart(weeks.map(w => Math.round(w.vol)), 'var(--accent2)')}</div>`;
+  h += intensitySplit();
   const maxVol = Math.max(...weeks.map(w => w.vol), 1);
   h += `<div class="card">`;
   [...weeks].reverse().forEach((wk, i) => {
@@ -2183,16 +2649,28 @@ function rMuscleStats() {
     return `<div class="empty"><span class="big">💪</span>Keine Trainings in den letzten 30 Tagen.<br>Leg los – dann siehst du hier, welche<br>Muskelgruppen du wie stark trainierst.</div>`;
   }
   const rows = [...agg.entries()].sort((a, b) => b[1].sets - a[1].sets);
-  const maxSets = rows[0][1].sets;
-  let h = `<div class="hint" style="margin:0 4px 12px">Sätze pro Muskelgruppe in den letzten 30 Tagen – so erkennst du Ungleichgewichte. Übungen mit mehreren Muskelgruppen zählen für jede davon.</div><div class="card">`;
+  // Richtwert aus der Trainingsforschung: ca. 10–20 Arbeitssätze je Muskel und Woche
+  const LO = 10, HI = 20, SKALA = 26;
+  let h = `<div class="hint" style="margin:0 4px 12px">Arbeitssätze pro Muskelgruppe und Woche (Schnitt der letzten 30 Tage). Der graue Bereich markiert den
+    Richtwert von <b>${LO}–${HI} Sätzen pro Woche</b>, der in der Trainingsforschung für Muskelaufbau genannt wird. Aufwärmsätze zählen nicht mit.</div><div class="card">`;
   rows.forEach(([m, a], i) => {
     const c = mColor(m);
+    const proWoche = a.sets / (30 / 7);
+    const w = Math.min(100, proWoche / SKALA * 100);
+    const status = m === 'Cardio' ? ''
+      : proWoche < LO ? `<span style="color:var(--orange)">wenig</span>`
+      : proWoche <= HI ? `<span style="color:var(--accent2)">im Zielbereich</span>`
+      : `<span style="color:var(--danger)">sehr viel</span>`;
     h += `<div style="padding:${i === 0 ? '4px' : '14px'} 0 4px">
       <div class="listitem">
         <b style="font-size:15px;color:${c}">${esc(m)}</b>
-        <span class="sub" style="margin:0">${a.sets} ${a.sets === 1 ? 'Satz' : 'Sätze'} · ${Math.round(a.vol).toLocaleString('de-DE')} kg</span>
+        <span class="sub" style="margin:0">${r1(proWoche)} Sätze/Woche ${status ? '· ' + status : ''}</span>
       </div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${Math.round(a.sets / maxSets * 100)}%;background:${c}"></div></div>
+      <div class="bar-bg" style="position:relative">
+        <div style="position:absolute;left:${LO / SKALA * 100}%;width:${(HI - LO) / SKALA * 100}%;top:0;bottom:0;background:var(--fill2)"></div>
+        <div class="bar-fill" style="position:relative;width:${w}%;background:${c}"></div>
+      </div>
+      <div class="hint" style="margin-top:4px">insgesamt ${a.sets} Sätze · ${Math.round(a.vol).toLocaleString('de-DE')} kg</div>
     </div>`;
   });
   h += `</div>`;
@@ -2226,7 +2704,8 @@ function musclesFor(name) {
 }
 function rOrm() {
   ormNames = knownExercises();
-  let h = `<h1>One-Rep-Max</h1><div class="sub">Dein Maximalgewicht für 1 Wiederholung</div><div style="height:18px"></div>
+  let h = `<div class="topbar"><button class="back" onclick="go('more')">‹ Mehr</button></div>
+    <h1>One-Rep-Max</h1><div class="sub">Dein Maximalgewicht für 1 Wiederholung</div><div style="height:18px"></div>
     <div class="card">
       <label class="fld" style="margin-top:0">Übung</label>
       <input id="orm-name" placeholder="z. B. Kniebeugen">
@@ -2293,7 +2772,8 @@ function delOrm(id) {
 /* ================= Körpergewicht ================= */
 function rWeight() {
   const ws = S.weights;
-  let h = `<h1>Körpergewicht</h1><div class="sub">Behalte deine Entwicklung im Blick</div><div style="height:18px"></div>
+  let h = `<div class="topbar"><button class="back" onclick="go('more')">‹ Mehr</button></div>
+    <h1>Körpergewicht</h1><div class="sub">Behalte deine Entwicklung im Blick</div><div style="height:18px"></div>
     <div class="card"><div class="row">
       <input id="bw" type="number" inputmode="decimal" placeholder="Gewicht in kg" step="0.1" min="1">
       <button class="btn sm" style="flex:0 0 120px" onclick="addBw()">Eintragen</button>
@@ -2343,9 +2823,6 @@ function delBw(i) {
   S.weights.splice(i, 1);
   save(); render();
 }
-
-/* Beim allerersten Start: deine Pläne automatisch laden */
-if (!S.plans.length && !S.workouts.length) loadTemplates(true);
 
 applyTheme();
 render();
